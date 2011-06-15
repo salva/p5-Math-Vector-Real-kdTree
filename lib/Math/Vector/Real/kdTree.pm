@@ -1,38 +1,61 @@
 package Math::Vector::Real::kdTree;
 
-use 5.012003;
+our $VERSION = '0.01';
+
+use 5.010;
 use strict;
 use warnings;
 
-require Exporter;
+use Math::Vector::Real;
+use Sort::Key::Radix qw(nkeysort_inplace);
 
-our @ISA = qw(Exporter);
-
-# Items to export into callers namespace by default. Note: do not export
-# names by default without a very good reason. Use EXPORT_OK instead.
-# Do not simply export all your public functions/methods/constants.
-
-# This allows declaration	use Math::Vector::Real::kdTree ':all';
-# If you do not need this, moving things directly into @EXPORT or @EXPORT_OK
-# will save memory.
-our %EXPORT_TAGS = ( 'all' => [ qw(
-	
-) ] );
-
-our @EXPORT_OK = ( @{ $EXPORT_TAGS{'all'} } );
-
-our @EXPORT = qw(
-	
-);
-
-our $VERSION = '0.01';
+my $max_per_pole = 12;
+my $recommended_per_pole = 6;
 
 
-# Preloaded methods go here.
+sub new {
+    my $class = shift;
+    my @v = map Math::Vector::Real::clone($_), @_;
+    my @ix = [0..$#v];
+    my $tree = _build(\@v, \@ix);
+    my $self = { vs => \@v,
+                 t => $tree };
+    bless $self, $class;
+}
+
+sub _build {
+    my ($v, $ix) = @_;
+    if (@$ix > $recommended_per_pole) {
+        my ($b, $t) = Math::Vector::Real->box(@$v[@$ix]);
+        my $pivot_axis = ($t - $b)->max_component_index;
+        nkeysort_inplace { $v->[$_][$pivot_axis] } @$ix;
+        my $bstart = @$ix << 1;
+        my $median = 0.5 * ($v->[$ix->[$bstart]][$pivot_axis] + $v->[$ix->[$bstart - 1]][$pivot_axis]);
+        my $ixb = [splice(@$ix, $bstart)];
+        [$pivot_axis, $median, _build($v, $ix), _build($v, $ixb)];
+    }
+    else {
+        [undef, @$ix];
+    }
+}
+
+sub at {
+    my ($self, $ix) = @_;
+    $self->{vs}[$ix]
+}
+
+sub find {
+    my ($self, $v) = @_;
+    _find($self->{v}, $self->{t})
+}
+
+sub _find {
+
+}
+
 
 1;
 __END__
-# Below is stub documentation for your module. You'd better edit it!
 
 =head1 NAME
 
