@@ -1,0 +1,6 @@
+Changes
+Makefile.PL
+MANIFEST
+README
+t/Math-Vector-Real-kdTree.t
+lib/Math/Vector/Real/kdTree.pm
