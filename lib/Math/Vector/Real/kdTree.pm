@@ -5,9 +5,10 @@ our $VERSION = '0.01';
 use 5.010;
 use strict;
 use warnings;
+use Carp;
 
 use Math::Vector::Real;
-use Sort::Key::Radix qw(nkeysort_inplace);
+use Sort::Key::Top qw(nkeypartref);
 
 my $max_per_pole = 12;
 my $recommended_per_pole = 6;
@@ -19,7 +20,7 @@ sub new {
     my @ix = [0..$#v];
     my $tree = _build(\@v, \@ix);
     my $self = { vs => \@v,
-                 t => $tree };
+                 tree => $tree };
     bless $self, $class;
 }
 
@@ -27,12 +28,11 @@ sub _build {
     my ($v, $ix) = @_;
     if (@$ix > $recommended_per_pole) {
         my ($b, $t) = Math::Vector::Real->box(@$v[@$ix]);
-        my $pivot_axis = ($t - $b)->max_component_index;
-        nkeysort_inplace { $v->[$_][$pivot_axis] } @$ix;
+        my $axis = ($t - $b)->max_component_index;
         my $bstart = @$ix << 1;
-        my $median = 0.5 * ($v->[$ix->[$bstart]][$pivot_axis] + $v->[$ix->[$bstart - 1]][$pivot_axis]);
-        my $ixb = [splice(@$ix, $bstart)];
-        [$pivot_axis, $median, _build($v, $ix), _build($v, $ixb)];
+        my ($l, $r) = nkeypartref { $v->[$_][$axis] } $bstart => @$ix;
+        my $median = 0.5 * ($v->[$l->[-1]][$axis] + $v->[$r->[0]][$axis]);
+        [$axis, _build($v, $l), _build($v, $r), $mediam, $b->[$axis], $t->[$axis]];
     }
     else {
         [undef, @$ix];
@@ -46,12 +46,77 @@ sub at {
 
 sub find {
     my ($self, $v) = @_;
-    _find($self->{v}, $self->{t})
+    _find($self->{vs}, $self->{tree}, $v)
 }
 
 sub _find {
-
+    my ($vs, $t, $v) = @_;
+    while (1) {
+        if (defined $t->[0]) {
+            my ($axis, $l, $r, $mediam, $min, $max) = @$t;
+            my $c = $v->[$axis];
+            return if ($min > $c or $c > $max);
+            if ($c < $median) {
+                $t = $l;
+            }
+            else {
+                if ($c == $median) {
+                    my $ix = _find($vs, $l, $v);
+                    return $ix if defined $ix;
+                }
+                $t = $r;
+            }
+        }
+        else {
+            for (@$t[1..$#t]) {
+                return $_ if $v == $vs->[$_];
+            }
+            return undef;
+        }
+    }
 }
+
+sub find_nearest_neighbor {
+    my ($self, $v) = @_;
+    my $vs = $self->{vs};
+    return unless @$vs;
+    _find_nearest_neighbor($self->{vs}, $self->{tree}, $v, 0, $vs->[0]->dist2($v), -1);
+}
+
+sub find_nearest_neighbor_internal {
+    my ($self, $vix) = @_;
+    my $vs = $self->{vs};
+    $vix >= @$vs and croak "index out of range";
+    return unless @$vs > 1;
+    my $start = ($vix ? 0 : 1);
+    _find_nearest_neighbor($self->{vs}, $self->{tree}, $v, $start, $vs->[$start]->dist2($v), $vix);
+}
+
+sub _find_nearest_neighbor {
+    my ($vs, $t, $v, $ix, $d2, $but) = @_;
+    while (1) {
+        if (defined $t->[0]) {
+            my ($axis, $median, $l, $r) = @$t;
+            my $c = $v->[$axis];
+            my $cm = $c - $median;
+            (my ($first), $t) = (($cm <= 0) ? ($l, $r) : ($r, $l));
+            ($ix, $d2) = _find_nearest_neighbor($vs, $first, $v, $ix, $d2, $but);
+            return ($ix, $d2) if $d2 <= $cm * $cm;
+        }
+        else {
+            for (@$t[1..$#t]) {
+                my $p = $vs->[$_];
+                my $d21 = $p->dist2($v);
+                if ($d21 < $d2 and $_ != $but) {
+                    $d2 = $d21;
+                    $ix = $_;
+                }
+            }
+            return ($ix, $d2)
+        }
+    }
+}
+
 
 
 1;
