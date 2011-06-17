@@ -235,26 +235,15 @@ This module implements a kd-Tree data structure in Perl.
 
 None by default.
 
-
-
 =head1 SEE ALSO
 
-Mention other useful documentation such as the documentation of
-related modules or operating system documentation (such as man pages
-in UNIX), or any relevant external documentation such as RFCs or
-standards.
+L<http://en.wikipedia.org/wiki/K-d_tree>
 
-If you have a mailing list set up for your module, mention it here.
-
-If you have a web site set up for your module, mention it here.
-
-=head1 AUTHOR
-
-Salvador Fandiño, E<lt>salva@E<gt>
+L<Math::Vector::Real>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2011 by Salvador Fandiño
+Copyright (C) 2011 by Salvador Fandiño E<lt>sfandino@yahoo.comE<gt>
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.12.3 or,
