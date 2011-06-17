@@ -119,7 +119,9 @@ sub find_nearest_neighbor {
     my $vs = $self->{vs};
     return unless @$vs;
     $but //= 1;
-    _find_nearest_neighbor($self->{vs}, $self->{tree}, $v, 0, $vs->[0]->dist2($v), $but);
+    ( wantarray
+      ? _find_nearest_neighbor($self->{vs}, $self->{tree}, $v, 0, $vs->[0]->dist2($v), $but)
+      : (_find_nearest_neighbor($self->{vs}, $self->{tree}, $v, 0, $vs->[0]->dist2($v), $but))[0] )
 }
 
 sub find_nearest_neighbor_internal {
@@ -225,15 +227,21 @@ Math::Vector::Real::kdTree - kd-Tree implementation on top of Math::Vector::Real
 
   use Math::Vector::Real::kdTree;
 
+  use Math::Vector::Real;
+  use Math::Vector::Real::Random;
 
+  my @v = map Math::Vector::Real->random_normal(4), 1..1000;
+
+  my $tree = Math::Vector::Real::kdTree->new(@v);
+
+  my $ix = $tree->find_nearest_neighbor(V(0, 0, 0, 0));
+
+  say "nearest neighbor is $ix, $v[$ix]";
 
 =head1 DESCRIPTION
 
-This module implements a kd-Tree data structure in Perl.
-
-=head2 EXPORT
-
-None by default.
+This module implements a kd-Tree data structure in Perl and some
+related algorithms.
 
 =head1 SEE ALSO
 
