@@ -33,16 +33,105 @@ sub _build {
         my $lc = ntop -1 => map $v->[$_][$axis], @$l;
         my $rc = ntop  1 => map $v->[$_][$axis], @$r;
         my $median = 0.5 * ($lc + $rc);
-        [$axis, _build($v, $l), _build($v, $r), $median, $b->[$axis], $t->[$axis]];
+        [$axis, _build($v, $l), _build($v, $r), $median, $b->[$axis], $t->[$axis], scalar(@$l), scalar(@$r)];
     }
     else {
         [undef, @$ix];
     }
 }
 
+sub size { scalar @{shift->{vs}} }
+
 sub at {
     my ($self, $ix) = @_;
-    $self->{vs}[$ix]
+    Math::Vector::Real::clone($self->{vs}[$ix]);
+}
+
+sub insert {
+    my ($self, $v) = @_;
+    my $vs = $self->{vs};
+    $v = Math::Vector::Real::clone($v);
+    push @$vs, $v;
+    _insert($vs, $self->{tree}, $#$vs)
+}
+
+sub _insert {
+    my ($vs, $t, $ix) = @_;
+    if (defined $t->[0]) {
+        my ($axis, $l, $r, $median, $min, $max, $nl, $nr) = @$t;
+        my $c = $vs->[$ix][$axis];
+        my $pole;
+        if ($c < $median) {
+            if (2 * $nr + $max_per_pole >= $nl) {
+                $t->[6]++;
+                $t->[4] = $c if $c < $min;
+                return _insert($vs, $l, $ix);
+            }
+        }
+        else {
+            if (2 * $nl + $max_per_pole >= $nr) {
+                $t->[7]++;
+                $t->[5] = $c if $c > $max;
+                return _insert($vs, $r, $ix);
+            }
+        }
+        my @store;
+        $#store = $nl + $nr;
+        @store = ($ix);
+        _push_all($t, \@store);
+        $_[1] = _build($vs, \@store);
+    }
+    elsif ($#$t< $max_per_pole) {
+        push @$t, $ix;
+    }
+    else {
+        $_[1] = _build($vs, [$ix, @$t[1..$#$t]])
+    }
+}
+
+sub move {
+    my ($self, $ix, $v) = @_;
+    my $vs = $self->{vs};
+    ($ix >= 0 and $ix < @$vs) or croak "index out of range";
+    my $t = $self->{tree};
+    _delete($vs, $t, $ix);
+    $vs->[$ix] = Math::Vector::Real::clone($v);
+    _insert($vs, $t, $ix);
+}
+
+
+sub _delete {
+    my ($vs, $t, $ix) = @_;
+    if (defined $t->[0]) {
+        my ($axis, $l, $r, $median) = @_;
+        my $c = $vs->[$ix][$axis];
+        if ($c <= $median and _delete($vs, $l, $ix)) {
+            $t->[6]--;
+            return 1;
+        }
+        elsif ($c >= $median and _delete($vs, $r, $ix)) {
+            $t->[7]--;
+            return 1;
+        }
+    }
+    else {
+        my $l = scalar @$t;
+        @$t = grep { not defined $_ or $_ =! $ix } @$t;
+        return @$t < $l;
+    }
+}
+
+
+
+sub _push_all {
+    my ($t, $store) = @_;
+    if (defined $t->[0]) {
+        _push_all($t->[1], $store);
+        _push_all($t->[2], $store);
+    }
+    else {
+        push @$store, @$t[1..$#$t]
+    }
 }
 
 sub path {
@@ -67,19 +156,6 @@ sub _path {
     }
     #print "is $vix in @$t[1..$#$t]?\n";
     ((grep $_ == $vix, @$t[1..$#$t]) ? [] : ());
-}
-
-sub all {
-    my ($self) = @_;
-    sort { $a <=> $b } _all($self->{tree});
-}
-
-sub _all {
-    my $t = shift;
-    if (defined $t->[0]) {
-        return (_all($t->[1]), _all($t->[2]))
-    }
-    return @$t[1..$#$t];
 }
 
 sub find {
@@ -115,25 +191,28 @@ sub _find {
 }
 
 sub find_nearest_neighbor {
-    my ($self, $v, $but) = @_;
+    my ($self, $v, $d, $but) = @_;
     my $vs = $self->{vs};
-    return unless @$vs;
-    $but //= 1;
-    ( wantarray
-      ? _find_nearest_neighbor($self->{vs}, $self->{tree}, $v, 0, $vs->[0]->dist2($v), $but)
-      : (_find_nearest_neighbor($self->{vs}, $self->{tree}, $v, 0, $vs->[0]->dist2($v), $but))[0] )
+    $but //= -1;
+    my $start = 0;
+    if ($but >= 0) {
+        $but >= @$vs and croak "index out of range";
+        return if @$vs < 2;
+        $start = 1 unless $but;
+    }
+    else {
+        return if @$vs < 1;
+    }
+    my $d2 = (defined $d ? $d * $d : $vs->[$start]->dist2($v));
+    my ($rix, $rd2) = _find_nearest_neighbor($self->{vs}, $self->{tree}, $v, $start, $d2, $but);
+    $rix // return;
+    wantarray ? ($rix, sqrt($rd2)) : $rix;
 }
 
 sub find_nearest_neighbor_internal {
-    my ($self, $vix) = @_;
-    my $vs = $self->{vs};
-    $vix >= @$vs and croak "index out of range";
-    return unless @$vs > 1;
-    my $start = ($vix ? 0 : 1);
-    my $v = $vs->[$vix];
-    ( wantarray
-      ? _find_nearest_neighbor($self->{vs}, $self->{tree}, $v, $start, $vs->[$start]->dist2($v), $vix)
-      : (_find_nearest_neighbor($self->{vs}, $self->{tree}, $v, $start, $vs->[$start]->dist2($v), $vix))[0] )
+    my ($self, $vix, $d) = @_;
+    $vix >= 0 or croak "index out of range";
+    $self->find_nearest_neighbor($self->{vs}[$vix], $d, $vix);
 }
 
 sub _find_nearest_neighbor {
@@ -242,6 +321,53 @@ Math::Vector::Real::kdTree - kd-Tree implementation on top of Math::Vector::Real
 
 This module implements a kd-Tree data structure in Perl and some
 related algorithms.
+
+The following methods are provided:
+
+=over 4
+
+=item $t = Math::Vector::Real::kdTree->new(@points)
+
+Creates a new kdTree containing the gived points.
+
+=item $t->insert($p)
+
+Inserts the given point into the kdTree.
+
+=item $s = $t->size($ix)
+
+Returns the number of points inside the tree.
+
+=item $p = $t->at($ix)
+
+Returns the point at the given index inside the tree.
+
+=item $t->move($ix, $p)
+
+Moves the point at index C<$ix> to the new given position readjusting
+the tree structure accordingly.
+
+=item ($ix, $d) = $t->find_nearest_neighbor($p, $max_d, $but_ix)
+
+Find the nearest neighbor for the given point C<$p> and returns its
+index and the distance between the two points (in scalar context the
+index is returned).
+
+If C<$max_d> is defined, the search is limited to the points within that distance
+
+If C<$but_ix> is defined, the point with the given index is not considered.
+
+=item @ix = $t->find_nearest_neighbor_all_internal
+
+Returns the index of the nearest neighbor for every point inside the tree.
+
+It is equivalent to (though, internally, it uses a better algorithm):
+
+  @ix = map {
+            scalar $t->nearest_neighbor($t->at($_), undef, $_)
+        } 0..($t->size - 1);
+
+=back
 
 =head1 SEE ALSO
 

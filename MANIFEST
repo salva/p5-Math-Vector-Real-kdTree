@@ -3,4 +3,6 @@ Makefile.PL
 MANIFEST
 README
 t/Math-Vector-Real-kdTree.t
+t/pods.t
 lib/Math/Vector/Real/kdTree.pm
+sample/boxes.pl

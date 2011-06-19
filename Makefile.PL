@@ -1,12 +1,11 @@
-use 5.012003;
+use 5.010;
+
 use ExtUtils::MakeMaker;
-# See lib/ExtUtils/MakeMaker.pm for details of how to influence
-# the contents of the Makefile that is written.
-WriteMakefile(
-    NAME              => 'Math::Vector::Real::kdTree',
-    VERSION_FROM      => 'lib/Math/Vector/Real/kdTree.pm', # finds $VERSION
-    PREREQ_PM         => {}, # e.g., Module::Name => 1.1
-    ($] >= 5.005 ?     ## Add these new keywords supported since 5.005
-      (ABSTRACT_FROM  => 'lib/Math/Vector/Real/kdTree.pm', # retrieve abstract from module
-       AUTHOR         => 'Salvador Fandiño <salva@>') : ()),
-);
+
+WriteMakefile( NAME          => 'Math::Vector::Real::kdTree',
+               VERSION_FROM  => 'lib/Math/Vector/Real/kdTree.pm',
+               PREREQ_PM     => { 'Math::Vector::Real' => '0.05',
+                                  'Sort::Key::Top'     => '0.06' },
+               ABSTRACT_FROM => 'lib/Math/Vector/Real/kdTree.pm',
+               AUTHOR        => 'Salvador Fandiño <sfandino@yahoo.com>'
+             );
