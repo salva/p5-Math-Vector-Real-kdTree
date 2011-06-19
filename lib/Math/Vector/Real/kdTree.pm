@@ -399,6 +399,19 @@ It is equivalent to (though, internally, it uses a better algorithm):
             scalar $t->nearest_neighbor($t->at($_), undef, $_)
         } 0..($t->size - 1);
 
+=item @ix = $t->find_in_ball($z, $d, $but)
+
+=item $n = $t->find_in_ball($z, $d, $but)
+
+Finds the points inside the tree contained in the hypersphere with
+center C<$z> and radius C<$d>.
+
+In scalar context returns the number of points found. In list context
+returns the indexes of the points.
+
+if the extra argument C<$but> provided. The point with that index is
+ignored.
+
 =back
 
 =head1 SEE ALSO
