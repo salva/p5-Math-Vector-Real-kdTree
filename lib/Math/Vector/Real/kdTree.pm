@@ -295,6 +295,38 @@ sub _find_nearest_neighbor_all_internal {
     }
 }
 
+sub find_in_ball {
+    my ($self, $z, $d, $but) = @_;
+    $but //= -1;
+    _find_in_ball($self->{vs}, $self->{tree}, $z, $d * $d, $but);
+}
+
+sub _find_in_ball {
+    my ($vs, $t, $z, $d2, $but) = @_;
+    if (defined $t->[0]) {
+        my ($axis, $l, $r, $median) = @$t;
+        my $c = $z->[$axis];
+        my $dc = $c - $median;
+        my ($f, $s) = (($dc < 0) ? ($l, $r) : ($r, $l));
+        if ($dc * $dc <= $d2) {
+            if (wantarray) {
+                return (_find_in_ball($vs, $f, $z, $d2, $but),
+                        _find_in_ball($vs, $s, $z, $d2, $but))
+            }
+            else {
+                return (_find_in_ball($vs, $f, $z, $d2, $but) +
+                        _find_in_ball($vs, $s, $z, $d2, $but));
+            }
+        }
+        else {
+            return _find_in_ball($vs, $f, $z, $d2, $but);
+        }
+    }
+    else {
+        grep { $_ != $but and $vs->[$_]->dist2($z) <= $d2 } @$t[1..$#$t]
+    }
+}
+
 1;
 __END__
 
