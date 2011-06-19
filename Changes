@@ -1,5 +1,8 @@
 Revision history for Perl extension Math::Vector::Real::kdTree.
 
+0.02  Jun 16, 2011
+        - add find_in_ball method
+
 0.01  Wed Jun 15 18:09:43 2011
 	- original version; created by h2xs 1.23 with options
 		-AXn Math::Vector::Real::kdTree
