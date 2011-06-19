@@ -334,7 +334,7 @@ Creates a new kdTree containing the gived points.
 
 Inserts the given point into the kdTree.
 
-=item $s = $t->size($ix)
+=item $s = $t->size
 
 Returns the number of points inside the tree.
 
