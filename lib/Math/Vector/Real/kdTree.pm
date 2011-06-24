@@ -194,16 +194,21 @@ sub find_nearest_neighbor {
     my ($self, $v, $d, $but) = @_;
     my $vs = $self->{vs};
     $but //= -1;
-    my $start = 0;
     if ($but >= 0) {
         $but >= @$vs and croak "index out of range";
         return if @$vs < 2;
-        $start = 1 unless $but;
     }
     else {
         return if @$vs < 1;
     }
-    my $d2 = (defined $d ? $d * $d : $vs->[$start]->dist2($v));
+    my ($start, $d2);
+    if (defined $d) {
+        $d2 = $d * $d;
+    }
+    else {
+        $start = ($but ? 0 : 1);
+        $d2 = $vs->[$start]->dist2($v);
+    }
     my ($rix, $rd2) = _find_nearest_neighbor($self->{vs}, $self->{tree}, $v, $start, $d2, $but);
     $rix // return;
     wantarray ? ($rix, sqrt($rd2)) : $rix;
@@ -409,8 +414,8 @@ center C<$z> and radius C<$d>.
 In scalar context returns the number of points found. In list context
 returns the indexes of the points.
 
-if the extra argument C<$but> provided. The point with that index is
-ignored.
+If the extra argument C<$but> is provided. The point with that index
+is ignored.
 
 =back
 
