@@ -1,5 +1,8 @@
 Revision history for Perl extension Math::Vector::Real::kdTree.
 
+0.03  Jun 22, 2011
+        - solve bug on find_nearest_neighbor when distance is limited
+
 0.02  Jun 16, 2011
         - add find_in_ball method
 
