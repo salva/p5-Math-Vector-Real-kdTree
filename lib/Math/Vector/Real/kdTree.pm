@@ -1,6 +1,6 @@
 package Math::Vector::Real::kdTree;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 use 5.010;
 use strict;
@@ -332,6 +332,27 @@ sub _find_in_ball {
     }
 }
 
+sub ordered_by_proximity {
+    my $self = shift;
+    my @r;
+    $#r = $#{$self->{vs}}; $#r = -1; # preallocate
+    _ordered_by_proximity($self->{tree}, \@r);
+    return @r;
+}
+
+sub _ordered_by_proximity {
+    my $t = shift;
+    my $r = shift;
+    if (defined $t->[0]) {
+        _ordered_by_proximity($t->[1], $r);
+        _ordered_by_proximity($t->[2], $r);
+    }
+    else {
+        push @$r, @{$t}[1..$#$t];
+    }
+}
+
+
 1;
 __END__
 
@@ -417,6 +438,11 @@ returns the indexes of the points.
 If the extra argument C<$but> is provided. The point with that index
 is ignored.
 
+=item @ix = $t->ordered_by_proximity
+
+Returns the indexes of the points in an ordered where is likely that
+the indexes of near vectors are also in near positions in the list.
+
 =back
 
 =head1 SEE ALSO
@@ -427,7 +453,7 @@ L<Math::Vector::Real>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2011 by Salvador Fandiño E<lt>sfandino@yahoo.comE<gt>
+Copyright (C) 2011, 2012 by Salvador Fandiño E<lt>sfandino@yahoo.comE<gt>
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.12.3 or,
