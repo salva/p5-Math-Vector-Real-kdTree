@@ -1,6 +1,8 @@
 Revision history for Perl extension Math::Vector::Real::kdTree.
 
-0.04
+0.04  Jun 19, 2012
+        - add hide method
+        - move and _delete methods were broken
         - add ordered_by_proximity method
 
 0.03  Jun 22, 2011
