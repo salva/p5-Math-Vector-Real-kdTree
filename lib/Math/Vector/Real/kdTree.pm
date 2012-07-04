@@ -100,7 +100,6 @@ sub move {
     _insert($vs, $t, $ix);
 }
 
-
 sub _delete {
     my ($vs, $t, $ix) = @_;
     if (defined $t->[0]) {
