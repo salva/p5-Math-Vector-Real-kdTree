@@ -1,6 +1,6 @@
 package Math::Vector::Real::kdTree;
 
-our $VERSION = '0.04';
+our $VERSION = '0.06';
 
 use 5.010;
 use strict;
@@ -58,11 +58,16 @@ sub at {
 }
 
 sub insert {
-    my ($self, $v) = @_;
+    my $self = shift;
+    return undef unless @_;
     my $vs = $self->{vs};
-    $v = Math::Vector::Real::clone($v);
-    push @$vs, $v;
-    _insert($vs, $self->{tree}, $#$vs)
+    my $ix = @$vs;
+    for (@_) {
+        my $v = Math::Vector::Real::clone($_);
+        push @$vs, $v;
+        _insert($vs, $self->{tree}, $#$vs)
+    }
+    $ix;
 }
 
 sub _insert {
@@ -429,9 +434,11 @@ Creates a duplicate of the tree. The two trees will share internal
 read only data so this method is more efficient in terms of memory
 usage than others performing a deep copy.
 
-=item $t->insert($p)
+=item my $ix = $t->insert($p0, $p1, ...)
 
-Inserts the given point into the kdTree.
+Inserts the given points into the kdTree.
+
+Returns the index assigned to the first point inserted.
 
 =item $s = $t->size
 
