@@ -1,6 +1,6 @@
 package Math::Vector::Real::kdTree;
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 use 5.010;
 use strict;
@@ -506,7 +506,7 @@ L<Math::Vector::Real>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2011, 2012 by Salvador Fandiño E<lt>sfandino@yahoo.comE<gt>
+Copyright (C) 2011-2013 by Salvador FandiE<ntilde>o E<lt>sfandino@yahoo.comE<gt>
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.12.3 or,
