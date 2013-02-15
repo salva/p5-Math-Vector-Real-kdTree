@@ -1,6 +1,6 @@
 package Math::Vector::Real::kdTree;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 use 5.010;
 use strict;
@@ -18,10 +18,19 @@ sub new {
     my @v = map Math::Vector::Real::clone($_), @_;
     my @ix = (0..$#v);
     my $tree = _build(\@v, \@ix);
-    my $self = { vs => \@v,
-                 tree => $tree,
+    my $self = { vs     => \@v,
+                 tree   => $tree,
                  hidden => '' };
     bless $self, $class;
+}
+
+sub clone {
+    my $self = shift;
+    require Storable;
+    my $clone = { vs     => [@{$self->{vs}}],
+                  tree   => Storable::dclone($self->{tree}),
+                  hidden => $self->{hidden} };
+    bless $clone, ref $self;
 }
 
 sub _build {
@@ -423,6 +432,12 @@ The following methods are provided:
 =item $t = Math::Vector::Real::kdTree->new(@points)
 
 Creates a new kdTree containing the gived points.
+
+=item $t2 = $t->clone
+
+Creates a duplicate of the tree. The two trees will share internal
+read only data so this method is more efficient in terms of memory
+usage than others performing a deep copy.
 
 =item my $ix = $t->insert($p0, $p1, ...)
 

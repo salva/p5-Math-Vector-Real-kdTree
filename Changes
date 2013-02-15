@@ -1,5 +1,8 @@
 Revision history for Perl extension Math::Vector::Real::kdTree.
 
+0.06  Oct 22, 2012
+        - add a clone method
+
 0.05  Sep 21, 2012
         - insert now accepts several points and returns the index of
           the first element inserted
