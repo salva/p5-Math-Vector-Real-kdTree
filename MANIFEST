@@ -4,5 +4,6 @@ MANIFEST
 README
 t/Math-Vector-Real-kdTree.t
 t/pods.t
+t/count.t
 lib/Math/Vector/Real/kdTree.pm
 sample/boxes.pl
