@@ -18,9 +18,8 @@ sub new {
     my @v = map Math::Vector::Real::clone($_), @_;
     my @ix = (0..$#v);
     my $tree = _build(\@v, \@ix);
-    my $self = { vs     => \@v,
-                 tree   => $tree,
-                 hidden => '' };
+    my $self = { vs   => \@v,
+                 tree => $tree };
     bless $self, $class;
 }
 
@@ -28,8 +27,8 @@ sub clone {
     my $self = shift;
     require Storable;
     my $clone = { vs     => [@{$self->{vs}}],
-                  tree   => Storable::dclone($self->{tree}),
-                  hidden => $self->{hidden} };
+                  tree   => Storable::dclone($self->{tree}) };
+    $clone->{hidden} = { %{$self->{hidden}} } if $self->{hidden};
     bless $clone, ref $self;
 }
 
@@ -149,7 +148,7 @@ sub hide {
     my $vs = $self->{vs};
     ($ix >= 0 and $ix < @$vs) or croak "index out of range";
     _delete($vs, $self->{tree}, $ix);
-    vec($self->{hidden}, $ix, 1) = 1;
+    ($self->{hidden} //= {})->{$ix} = 1;
 }
 
 sub _push_all {
@@ -238,17 +237,16 @@ sub find_nearest_neighbor {
         $d2 = $d * $d;
     }
     else {
-        my $h = \$self->{hidden};
-        $start = 0;
-        while (1) {
-            return unless $start < @$vs;
-            last unless vec($$h, $start, 1) or ($but and $but->{$start});
-            $start++;
+        my $hidden = $self->{hidden};
+        for ($start = 0;
+             $start < @$vs or return;
+             $start++) {
+            last unless ( ( $hidden and $hidden->{$start} ) or
+                          ( $but    and $but->{$start}    ) );
         }
         $d2 = $vs->[$start]->dist2($v);
-        # say "start: $start, d2: $d2";
     }
-    my ($rix, $rd2) = _find_nearest_neighbor($self->{vs}, $self->{tree}, $v, $start, $d2, $but);
+    my ($rix, $rd2) = _find_nearest_neighbor($vs, $self->{tree}, $v, $start, $d2, $but);
     $rix // return;
     wantarray ? ($rix, sqrt($rd2)) : $rix;
 }
@@ -295,11 +293,8 @@ sub find_nearest_neighbor_all_internal {
     $best[0] = 1;
     $d2[0] = $d2[1];
     _find_nearest_neighbor_all_internal($vs, $self->{tree}, \@best, \@d2);
-    if (length $self->{hidden}) {
-        my $h = $self->{hidden};
-        for (0..$#best) {
-            $best[$_] = undef if vec($h, $_, 1);
-        }
+    if ($self->{hidden}) {
+        $best[$_] = undef for keys %{$self->{hidden}};
     }
     return @best;
 }
