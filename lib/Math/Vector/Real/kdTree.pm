@@ -429,7 +429,7 @@ The following methods are provided:
 
 =item $t = Math::Vector::Real::kdTree->new(@points)
 
-Creates a new kdTree containing the gived points.
+Creates a new kd-Tree containing the given points.
 
 =item $t2 = $t->clone
 
@@ -439,7 +439,7 @@ usage than others performing a deep copy.
 
 =item my $ix = $t->insert($p0, $p1, ...)
 
-Inserts the given points into the kdTree.
+Inserts the given points into the kd-Tree.
 
 Returns the index assigned to the first point inserted.
 
