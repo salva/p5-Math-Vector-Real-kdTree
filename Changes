@@ -1,5 +1,9 @@
 Revision history for Perl extension Math::Vector::Real::kdTree.
 
+0.09  Jun 17, 2013
+        - add support for excluding more than one point in neighbor
+          searching methods
+
 0.08  Feb 16, 2013
         - add test for RT but #83330
 
