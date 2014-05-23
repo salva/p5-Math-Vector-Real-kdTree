@@ -49,11 +49,11 @@ sub _build {
         my ($b, $t) = Math::Vector::Real->box(@$v[@$ix]);
         my $axis = ($t - $b)->max_component_index;
         my $bstart = @$ix >> 1;
-        my ($l, $r) = nkeypartref { $v->[$_][$axis] } $bstart => @$ix;
-        my $lc = ntail map $v->[$_][$axis], @$l;
-        my $rc = nhead map $v->[$_][$axis], @$r;
-        my $median = 0.5 * ($lc + $rc);
-        [$axis, _build($v, $l), _build($v, $r), $median, $b->[$axis], $t->[$axis], scalar(@$l), scalar(@$r)];
+        my ($p0, $p1) = nkeypartref { $v->[$_][$axis] } $bstart => @$ix;
+        my $c0 = ntail map $v->[$_][$axis], @$p0;
+        my $c1 = nhead map $v->[$_][$axis], @$p1;
+        my $median = 0.5 * ($c0 + $c1);
+        [$axis, _build($v, $p0), _build($v, $p1), $median, $b->[$axis], $t->[$axis], scalar(@$p0), scalar(@$p1)];
     }
     else {
         [undef, @$ix];
@@ -87,11 +87,11 @@ sub insert {
 sub _insert {
     my ($vs, $t, $ix) = @_;
     if (defined $t->[_axis]) {
-        my ($axis, undef, undef, $median, $min, $max, $nl, $nr) = @$t;
+        my ($axis, undef, undef, $median, $min, $max, $n0, $n1) = @$t;
         my $c = $vs->[$ix][$axis];
         my $pole;
         if ($c < $median) {
-            if (2 * $nr + $max_per_pole >= $nl) {
+            if (2 * $n1 + $max_per_pole >= $n0) {
                 $t->[_n0]++;
                 $t->[_min] = $c if $c < $min;
                 _insert($vs, $t->[_s0], $ix);
@@ -99,7 +99,7 @@ sub _insert {
             }
         }
         else {
-            if (2 * $nl + $max_per_pole >= $nr) {
+            if (2 * $n0 + $max_per_pole >= $n1) {
                 $t->[_n1]++;
                 $t->[_max] = $c if $c > $max;
                 _insert($vs, $t->[_s1], $ix);
@@ -107,7 +107,7 @@ sub _insert {
             }
         }
         my @store;
-        $#store = $nl + $nr; # preallocate space
+        $#store = $n0 + $n1; # preallocate space
         @store = ($ix);
         _push_all($t, \@store);
         $_[1] = _build($vs, \@store);
@@ -133,25 +133,25 @@ sub move {
 sub _delete {
     my ($vs, $t, $ix) = @_;
     if (defined $t->[_axis]) {
-        my ($axis, $l, $r, $median) = @$t;
+        my ($axis, $s0, $s1, $median) = @$t;
         #print "axis: $axis, ix: $ix\n";
         my $c = $vs->[$ix][$axis];
-        if ($c <= $median and _delete($vs, $l, $ix)) {
+        if ($c <= $median and _delete($vs, $s0, $ix)) {
             #--($t->[_n0]);
-            @$t = @$r unless --($t->[_n0]);
+            @$t = @$s1 unless --($t->[_n0]);
             return 1;
         }
-        elsif ($c >= $median and _delete($vs, $r, $ix)) {
+        elsif ($c >= $median and _delete($vs, $s1, $ix)) {
             #--($t->[_n1]);
-            @$t = @$l unless --($t->[_n1]);
+            @$t = @$s0 unless --($t->[_n1]);
             return 1;
         }
         return 0;
     }
     else {
-        my $l = scalar @$t;
+        my $s0 = scalar @$t;
         @$t = grep { not (defined($_) and ($_ == $ix)) } @$t;
-        return @$t < $l;
+        return @$t < $s0;
     }
 }
 
@@ -207,18 +207,18 @@ sub _find {
     my ($vs, $t, $v) = @_;
     while (1) {
         if (defined $t->[_axis]) {
-            my ($axis, $l, $r, $median, $min, $max) = @$t;
+            my ($axis, $s0, $s1, $median, $min, $max) = @$t;
             my $c = $v->[$axis];
             return if ($min > $c or $c > $max);
             if ($c < $median) {
-                $t = $l;
+                $t = $s0;
             }
             else {
                 if ($c == $median) {
-                    my $ix = _find($vs, $l, $v);
+                    my $ix = _find($vs, $s0, $v);
                     return $ix if defined $ix;
                 }
-                $t = $r;
+                $t = $s1;
             }
         }
         else {
@@ -273,10 +273,10 @@ sub _find_nearest_neighbor {
     my ($vs, $t, $v, $ix, $d2, $but) = @_;
     while (1) {
         if (defined $t->[_axis]) {
-            my ($axis, $l, $r, $median) = @$t;
+            my ($axis, $s0, $s1, $median) = @$t;
             my $c = $v->[$axis];
             my $cm = $c - $median;
-            (my ($first), $t) = (($cm <= 0) ? ($l, $r) : ($r, $l));
+            (my ($first), $t) = (($cm <= 0) ? ($s0, $s1) : ($s1, $s0));
             ($ix, $d2) = _find_nearest_neighbor($vs, $first, $v, $ix, $d2, $but);
             return ($ix, $d2) if $d2 <= $cm * $cm;
         }
@@ -314,7 +314,7 @@ sub find_nearest_neighbor_all_internal {
 sub _find_nearest_neighbor_all_internal {
     my ($vs, $t, $best, $d2) = @_;
     if (defined $t->[_axis]) {
-        my ($axis, $l, $r, $median) = @$t;
+        my ($axis, $s0, $s1, $median) = @$t;
         my @r;
         for my $side (0, 1) {
             my @poles = _find_nearest_neighbor_all_internal($vs, $t->[_s0 + $side], $best, $d2);
@@ -361,10 +361,10 @@ sub find_in_ball {
 sub _find_in_ball {
     my ($vs, $t, $z, $d2, $but) = @_;
     if (defined $t->[_axis]) {
-        my ($axis, $l, $r, $median) = @$t;
+        my ($axis, $s0, $s1, $median) = @$t;
         my $c = $z->[$axis];
         my $dc = $c - $median;
-        my ($f, $s) = (($dc < 0) ? ($l, $r) : ($r, $l));
+        my ($f, $s) = (($dc < 0) ? ($s0, $s1) : ($s1, $s0));
         if ($dc * $dc <= $d2) {
             if (wantarray) {
                 return (_find_in_ball($vs, $f, $z, $d2, $but),
