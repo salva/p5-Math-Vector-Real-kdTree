@@ -8,7 +8,7 @@ use warnings;
 use Carp;
 
 use Math::Vector::Real;
-use Sort::Key::Top qw(nkeypartref ntop);
+use Sort::Key::Top qw(nkeypartref nhead ntail);
 
 our $max_per_pole = 12;
 our $recommended_per_pole = 6;
@@ -39,8 +39,8 @@ sub _build {
         my $axis = ($t - $b)->max_component_index;
         my $bstart = @$ix >> 1;
         my ($l, $r) = nkeypartref { $v->[$_][$axis] } $bstart => @$ix;
-        my $lc = ntop -1 => map $v->[$_][$axis], @$l;
-        my $rc = ntop  1 => map $v->[$_][$axis], @$r;
+        my $lc = ntail map $v->[$_][$axis], @$l;
+        my $rc = nhead map $v->[$_][$axis], @$r;
         my $median = 0.5 * ($lc + $rc);
         [$axis, _build($v, $l), _build($v, $r), $median, $b->[$axis], $t->[$axis], scalar(@$l), scalar(@$r)];
     }
