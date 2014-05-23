@@ -19,8 +19,7 @@ use constant _s1   => 2; # subtree 1
 use constant _cut  => 3; # cut point (mediam)
 use constant _min  => 4; # min coordinate for partition axis
 use constant _max  => 5; # max coordinate for partition axis
-use constant _n0   => 6; # elements on subtree 0
-use constant _n1   => 7; # elements on subtree 1
+use constant _n    => 6; # elements on subtree
 
 sub new {
     my $class = shift;
@@ -53,7 +52,8 @@ sub _build {
         my $c0 = ntail map $v->[$_][$axis], @$p0;
         my $c1 = nhead map $v->[$_][$axis], @$p1;
         my $median = 0.5 * ($c0 + $c1);
-        [$axis, _build($v, $p0), _build($v, $p1), $median, $b->[$axis], $t->[$axis], scalar(@$p0), scalar(@$p1)];
+        # _axis _s0 _s1 _cut _min _max _n
+        [$axis, _build($v, $p0), _build($v, $p1), $median, $b->[$axis], $t->[$axis], scalar(@$ix)];
     }
     else {
         [undef, @$ix];
@@ -87,12 +87,16 @@ sub insert {
 sub _insert {
     my ($vs, $t, $ix) = @_;
     if (defined $t->[_axis]) {
-        my ($axis, undef, undef, $median, $min, $max, $n0, $n1) = @$t;
+        my $n = $t->[_n]++;
+        my ($axis, $sl, $sr, $median, $min, $max) = @$t;
         my $c = $vs->[$ix][$axis];
         my $pole;
+
+        my $n0 = (defined $sl->[_axis] ? $sl->[_n] : $#$sl);
+        my $n1 = (defined $sr->[_axis] ? $sr->[_n] : $#$sr);
+
         if ($c < $median) {
             if (2 * $n1 + $max_per_pole >= $n0) {
-                $t->[_n0]++;
                 $t->[_min] = $c if $c < $min;
                 _insert($vs, $t->[_s0], $ix);
                 return;
@@ -100,19 +104,18 @@ sub _insert {
         }
         else {
             if (2 * $n0 + $max_per_pole >= $n1) {
-                $t->[_n1]++;
                 $t->[_max] = $c if $c > $max;
                 _insert($vs, $t->[_s1], $ix);
                 return;
             }
         }
         my @store;
-        $#store = $n0 + $n1; # preallocate space
+        $#store = $n; # preallocate space
         @store = ($ix);
         _push_all($t, \@store);
         $_[1] = _build($vs, \@store);
     }
-    elsif ($#$t< $max_per_pole) {
+    elsif ($#$t < $max_per_pole) {
         push @$t, $ix;
     }
     else {
@@ -137,13 +140,22 @@ sub _delete {
         #print "axis: $axis, ix: $ix\n";
         my $c = $vs->[$ix][$axis];
         if ($c <= $median and _delete($vs, $s0, $ix)) {
-            #--($t->[_n0]);
-            @$t = @$s1 unless --($t->[_n0]);
+            if ($#$s0 == 0) {
+                # when one subnode is empty, promote the other up:
+                @$t = @$s1;
+            }
+            else {
+                $t->[_n]--;
+            }
             return 1;
         }
         elsif ($c >= $median and _delete($vs, $s1, $ix)) {
-            #--($t->[_n1]);
-            @$t = @$s0 unless --($t->[_n1]);
+            if ($#$s1 == 0) {
+                @$t = @$s0;
+            }
+            else {
+                $t->[_n]--;
+            }
             return 1;
         }
         return 0;
