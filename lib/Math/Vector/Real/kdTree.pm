@@ -17,9 +17,7 @@ use constant _axis => 0; # cut axis
 use constant _s0   => 1; # subtree 0
 use constant _s1   => 2; # subtree 1
 use constant _cut  => 3; # cut point (mediam)
-use constant _min  => 4; # min coordinate for partition axis
-use constant _max  => 5; # max coordinate for partition axis
-use constant _n    => 6; # elements on subtree
+use constant _n    => 4; # elements on subtree
 
 sub new {
     my $class = shift;
@@ -52,8 +50,8 @@ sub _build {
         my $c0 = ntail map $v->[$_][$axis], @$p0;
         my $c1 = nhead map $v->[$_][$axis], @$p1;
         my $median = 0.5 * ($c0 + $c1);
-        # _axis _s0 _s1 _cut _min _max _n
-        [$axis, _build($v, $p0), _build($v, $p1), $median, $b->[$axis], $t->[$axis], scalar(@$ix)];
+        # _axis _s0 _s1 _cut
+        [$axis, _build($v, $p0), _build($v, $p1), $median, scalar(@$ix)];
     }
     else {
         [undef, @$ix];
@@ -88,7 +86,7 @@ sub _insert {
     my ($vs, $t, $ix) = @_;
     if (defined $t->[_axis]) {
         my $n = $t->[_n]++;
-        my ($axis, $sl, $sr, $median, $min, $max) = @$t;
+        my ($axis, $sl, $sr, $median) = @$t;
         my $c = $vs->[$ix][$axis];
         my $pole;
 
@@ -97,14 +95,12 @@ sub _insert {
 
         if ($c < $median) {
             if (2 * $n1 + $max_per_pole >= $n0) {
-                $t->[_min] = $c if $c < $min;
                 _insert($vs, $t->[_s0], $ix);
                 return;
             }
         }
         else {
             if (2 * $n0 + $max_per_pole >= $n1) {
-                $t->[_max] = $c if $c > $max;
                 _insert($vs, $t->[_s1], $ix);
                 return;
             }
@@ -219,9 +215,8 @@ sub _find {
     my ($vs, $t, $v) = @_;
     while (1) {
         if (defined $t->[_axis]) {
-            my ($axis, $s0, $s1, $median, $min, $max) = @$t;
+            my ($axis, $s0, $s1, $median) = @$t;
             my $c = $v->[$axis];
-            return if ($min > $c or $c > $max);
             if ($c < $median) {
                 $t = $s0;
             }
