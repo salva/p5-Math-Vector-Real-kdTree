@@ -13,21 +13,32 @@ use Sort::Key::Top qw(nkeypartref nhead ntail);
 our $max_per_pole = 12;
 our $recommended_per_pole = 6;
 
+use constant _axis => 0; # cut axis
+use constant _s0   => 1; # subtree 0
+use constant _s1   => 2; # subtree 1
+use constant _cut  => 3; # cut point (mediam)
+use constant _min  => 4; # min coordinate for partition axis
+use constant _max  => 5; # max coordinate for partition axis
+use constant _n0   => 6; # elements on subtree 0
+use constant _n1   => 7; # elements on subtree 1
+
 sub new {
     my $class = shift;
     my @v = map Math::Vector::Real::clone($_), @_;
     my @ix = (0..$#v);
     my $tree = _build(\@v, \@ix);
     my $self = { vs   => \@v,
-                 tree => $tree };
+                 tree => $tree,
+                 box  => [] };
     bless $self, $class;
 }
 
 sub clone {
     my $self = shift;
     require Storable;
-    my $clone = { vs     => [@{$self->{vs}}],
-                  tree   => Storable::dclone($self->{tree}) };
+    my $clone = { vs   => [@{$self->{vs}}],
+                  tree => Storable::dclone($self->{tree}),
+                  box  => [@{$self->{box}}] };
     $clone->{hidden} = { %{$self->{hidden}} } if $self->{hidden};
     bless $clone, ref $self;
 }
@@ -64,6 +75,7 @@ sub insert {
     for (@_) {
         my $v = Math::Vector::Real::clone($_);
         push @$vs, $v;
+        @{$self->{box}} = Math::Vector::Real->box(@{$self->{box}}, $v);
         _insert($vs, $self->{tree}, $#$vs)
     }
     $ix;
@@ -74,23 +86,23 @@ sub insert {
 
 sub _insert {
     my ($vs, $t, $ix) = @_;
-    if (defined $t->[0]) {
+    if (defined $t->[_axis]) {
         my ($axis, undef, undef, $median, $min, $max, $nl, $nr) = @$t;
         my $c = $vs->[$ix][$axis];
         my $pole;
         if ($c < $median) {
             if (2 * $nr + $max_per_pole >= $nl) {
-                $t->[6]++;
-                $t->[4] = $c if $c < $min;
-                _insert($vs, $t->[1], $ix);
+                $t->[_n0]++;
+                $t->[_min] = $c if $c < $min;
+                _insert($vs, $t->[_s0], $ix);
                 return;
             }
         }
         else {
             if (2 * $nl + $max_per_pole >= $nr) {
-                $t->[7]++;
-                $t->[5] = $c if $c > $max;
-                _insert($vs, $t->[2], $ix);
+                $t->[_n1]++;
+                $t->[_max] = $c if $c > $max;
+                _insert($vs, $t->[_s1], $ix);
                 return;
             }
         }
@@ -104,7 +116,7 @@ sub _insert {
         push @$t, $ix;
     }
     else {
-        $t->[0] = $ix;
+        $t->[_axis] = $ix;
         $_[1] = _build($vs, $t);
     }
 }
@@ -120,18 +132,18 @@ sub move {
 
 sub _delete {
     my ($vs, $t, $ix) = @_;
-    if (defined $t->[0]) {
+    if (defined $t->[_axis]) {
         my ($axis, $l, $r, $median) = @$t;
         #print "axis: $axis, ix: $ix\n";
         my $c = $vs->[$ix][$axis];
         if ($c <= $median and _delete($vs, $l, $ix)) {
-            #--($t->[6]);
-            @$t = @$r unless --($t->[6]);
+            #--($t->[_n0]);
+            @$t = @$r unless --($t->[_n0]);
             return 1;
         }
         elsif ($c >= $median and _delete($vs, $r, $ix)) {
-            #--($t->[7]);
-            @$t = @$l unless --($t->[7]);
+            #--($t->[_n1]);
+            @$t = @$l unless --($t->[_n1]);
             return 1;
         }
         return 0;
@@ -153,9 +165,9 @@ sub hide {
 
 sub _push_all {
     my ($t, $store) = @_;
-    if (defined $t->[0]) {
-        _push_all($t->[1], $store);
-        _push_all($t->[2], $store);
+    if (defined $t->[_axis]) {
+        _push_all($t->[_s0], $store);
+        _push_all($t->[_s1], $store);
     }
     else {
         push @$store, @$t[1..$#$t]
@@ -175,9 +187,9 @@ sub path {
 
 sub _path {
     my ($t, $vix) = @_;
-    if (defined $t->[0]) {
+    if (defined $t->[_axis]) {
         for (0, 1) {
-            my $p = _path($t->[1+$_], $vix);
+            my $p = _path($t->[_s0 + $_], $vix);
             return [$_, @$p] if $p;
         }
         return undef;
@@ -194,7 +206,7 @@ sub find {
 sub _find {
     my ($vs, $t, $v) = @_;
     while (1) {
-        if (defined $t->[0]) {
+        if (defined $t->[_axis]) {
             my ($axis, $l, $r, $median, $min, $max) = @$t;
             my $c = $v->[$axis];
             return if ($min > $c or $c > $max);
@@ -260,7 +272,7 @@ sub find_nearest_neighbor_internal {
 sub _find_nearest_neighbor {
     my ($vs, $t, $v, $ix, $d2, $but) = @_;
     while (1) {
-        if (defined $t->[0]) {
+        if (defined $t->[_axis]) {
             my ($axis, $l, $r, $median) = @$t;
             my $c = $v->[$axis];
             my $cm = $c - $median;
@@ -301,13 +313,13 @@ sub find_nearest_neighbor_all_internal {
 
 sub _find_nearest_neighbor_all_internal {
     my ($vs, $t, $best, $d2) = @_;
-    if (defined $t->[0]) {
+    if (defined $t->[_axis]) {
         my ($axis, $l, $r, $median) = @$t;
         my @r;
         for my $side (0, 1) {
-            my @poles = _find_nearest_neighbor_all_internal($vs, $t->[1 + $side], $best, $d2);
+            my @poles = _find_nearest_neighbor_all_internal($vs, $t->[_s0 + $side], $best, $d2);
             push @r, @poles;
-            my $other = $t->[2-$side];
+            my $other = $t->[_s1 - $side];
             for my $pole (@poles) {
                 for my $ix (@$pole[1..$#$pole]) {
                     my $v = $vs->[$ix];
@@ -348,7 +360,7 @@ sub find_in_ball {
 
 sub _find_in_ball {
     my ($vs, $t, $z, $d2, $but) = @_;
-    if (defined $t->[0]) {
+    if (defined $t->[_axis]) {
         my ($axis, $l, $r, $median) = @$t;
         my $c = $z->[$axis];
         my $dc = $c - $median;
@@ -386,9 +398,9 @@ sub ordered_by_proximity {
 sub _ordered_by_proximity {
     my $t = shift;
     my $r = shift;
-    if (defined $t->[0]) {
-        _ordered_by_proximity($t->[1], $r);
-        _ordered_by_proximity($t->[2], $r);
+    if (defined $t->[_axis]) {
+        _ordered_by_proximity($t->[_s0], $r);
+        _ordered_by_proximity($t->[_s1], $r);
     }
     else {
         push @$r, @{$t}[1..$#$t];
