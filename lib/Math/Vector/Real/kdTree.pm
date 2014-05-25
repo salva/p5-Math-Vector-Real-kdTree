@@ -13,11 +13,18 @@ use Sort::Key::Top qw(nkeypartref nhead ntail);
 our $max_per_pole = 12;
 our $recommended_per_pole = 6;
 
-use constant _axis => 0; # cut axis
-use constant _s0   => 1; # subtree 0
-use constant _s1   => 2; # subtree 1
-use constant _cut  => 3; # cut point (mediam)
-use constant _n    => 4; # elements on subtree
+use constant _n    => 0; # elements on subtree
+use constant _c0   => 1; # corner 0
+use constant _c1   => 2; # corner 1
+use constant _sum  => 3; # centroid * n
+use constant _s0   => 4; # subtree 0
+use constant _s1   => 5; # subtree 1
+use constant _axis => 6; # cut axis
+use constant _cut  => 7; # cut point (mediam)
+
+# on leaf nodes:
+use constant _ixs   => 4
+use constant _leaf_size => _ixs + 1;
 
 sub new {
     my $class = shift;
@@ -25,8 +32,7 @@ sub new {
     my @ix = (0..$#v);
     my $tree = _build(\@v, \@ix);
     my $self = { vs   => \@v,
-                 tree => $tree,
-                 box  => [] };
+                 tree => $tree };
     bless $self, $class;
 }
 
@@ -34,8 +40,7 @@ sub clone {
     my $self = shift;
     require Storable;
     my $clone = { vs   => [@{$self->{vs}}],
-                  tree => Storable::dclone($self->{tree}),
-                  box  => [@{$self->{box}}] };
+                  tree => Storable::dclone($self->{tree}) };
     $clone->{hidden} = { %{$self->{hidden}} } if $self->{hidden};
     bless $clone, ref $self;
 }
@@ -47,14 +52,18 @@ sub _build {
         my $axis = ($t - $b)->max_component_index;
         my $bstart = @$ix >> 1;
         my ($p0, $p1) = nkeypartref { $v->[$_][$axis] } $bstart => @$ix;
-        my $c0 = ntail map $v->[$_][$axis], @$p0;
-        my $c1 = nhead map $v->[$_][$axis], @$p1;
-        my $median = 0.5 * ($c0 + $c1);
-        # _axis _s0 _s1 _cut
-        [$axis, _build($v, $p0), _build($v, $p1), $median, scalar(@$ix)];
+        my $s0 = _build($v, $p0);
+        my $s1 = _build($v, $p1);
+        my ($c0, $c1) = Math::Vector::Real->box(@{$s0}[_c0, _c1], @{$s1}[_c0, _c1]);
+        my $cut = 0.5 * ($s0->[_c1][$axis] + $s1->[_c0][$axis]);
+        # [n sum s0 s1 axis cut]
+        [scalar(@$ix), $c0, $c1, $s0->[_sum] + $s1->[_sum], $s0, $s1, $axis, $cut];
     }
     else {
-        [undef, @$ix];
+        # [n, sum, ixs]
+        my @vs = @{$v}[@$ixs];
+        my ($c0, $c1) = Math::Vector::Real->box(@vs);
+        [scalar(@$ix), $c0, $c1, Math::Vector::Real->sum(@vs), $ix];
     }
 }
 
@@ -73,27 +82,28 @@ sub insert {
     for (@_) {
         my $v = Math::Vector::Real::clone($_);
         push @$vs, $v;
-        @{$self->{box}} = Math::Vector::Real->box(@{$self->{box}}, $v);
         _insert($vs, $self->{tree}, $#$vs)
     }
     $ix;
 }
 
 # _insert does not return anything but modifies its $t argument in
-# place. This is really ugly, done to improve performance.
+# place. This is really ugly but done to improve performance.
 
 sub _insert {
     my ($vs, $t, $ix) = @_;
-    if (defined $t->[_axis]) {
-        my $n = $t->[_n]++;
-        my ($axis, $sl, $sr, $median) = @$t;
-        my $c = $vs->[$ix][$axis];
-        my $pole;
+    my $n = $t->[_n]++;
+    my $v = $vs->[$ix];
+    @{$t}[_c0, _c1] = Math::Vector::Real->box(@{$t}[_c0, _c1], $v)
 
-        my $n0 = (defined $sl->[_axis] ? $sl->[_n] : $#$sl);
-        my $n1 = (defined $sr->[_axis] ? $sr->[_n] : $#$sr);
+    if (defined (my $axis = $t->[_axis])) {
+        my $cut = $t->[_cut];
+        my $c = $v->[$axis];
 
-        if ($c < $median) {
+        my $n0 = $t->[_s0][_n];
+        my $n1 = $t->[_s1][_n];
+
+        if ($c <= $cut) {
             if (2 * $n1 + $max_per_pole >= $n0) {
                 _insert($vs, $t->[_s0], $ix);
                 return;
@@ -105,18 +115,20 @@ sub _insert {
                 return;
             }
         }
+
+        # tree needs rebalancing
         my @store;
         $#store = $n; # preallocate space
         @store = ($ix);
         _push_all($t, \@store);
         $_[1] = _build($vs, \@store);
     }
-    elsif ($#$t < $max_per_pole) {
-        push @$t, $ix;
-    }
     else {
-        $t->[_axis] = $ix;
-        $_[1] = _build($vs, $t);
+        my $ixs = $t->[_ixs];
+        push @$ixs, $ix;
+        if ($n > $max_per_pole) {
+            $_[1] = _build($vs, $ixs);
+        }
     }
 }
 
