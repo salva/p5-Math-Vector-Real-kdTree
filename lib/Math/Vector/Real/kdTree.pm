@@ -208,7 +208,7 @@ sub _path {
 
 sub find {
     my ($self, $v) = @_;
-    _find($self->{vs}, $self->{tree}, $v)
+    _find($self->{vs}, $self->{tree}, $v);
 }
 
 sub _find {
@@ -251,21 +251,10 @@ sub find_nearest_neighbor {
         }
     }
 
-    my ($start, $d2);
-    if (defined $d) {
-        $d2 = $d * $d;
-    }
-    else {
-        my $hidden = $self->{hidden};
-        for ($start = 0;
-             $start < @$vs or return;
-             $start++) {
-            last unless ( ( $hidden and $hidden->{$start} ) or
-                          ( $but    and $but->{$start}    ) );
-        }
-        $d2 = $vs->[$start]->dist2($v);
-    }
-    my ($rix, $rd2) = _find_nearest_neighbor($vs, $self->{tree}, $v, $start, $d2, $but);
+    my $d2 = (defined $d ? $d * $d : 'inf');
+
+    my ($rix, $rd2) = _find_nearest_neighbor($vs, $self->{tree}, @{$self->{box}},
+                                             $v, $d2, undef, $but);
     $rix // return;
     wantarray ? ($rix, sqrt($rd2)) : $rix;
 }
@@ -277,29 +266,67 @@ sub find_nearest_neighbor_internal {
 }
 
 sub _find_nearest_neighbor {
-    my ($vs, $t, $v, $ix, $d2, $but) = @_;
+    my ($vs, $t, $c0, $c1, $v, $best_d2, $best_ix, $but) = @_;
+
+    # element are pushed into the queue as [d2, t, c0, c1]
+    my @queue;
+
     while (1) {
-        if (defined $t->[_axis]) {
-            my ($axis, $s0, $s1, $median) = @$t;
-            my $c = $v->[$axis];
-            my $cm = $c - $median;
-            (my ($first), $t) = (($cm <= 0) ? ($s0, $s1) : ($s1, $s0));
-            ($ix, $d2) = _find_nearest_neighbor($vs, $first, $v, $ix, $d2, $but);
-            return ($ix, $d2) if $d2 <= $cm * $cm;
+        if (defined (my $axis = $t->[_axis])) {
+            my $cut = $t->[_cut];
+            my $c = $v->[_axis];
+
+            # calculate the worst subtree and then substitute the
+            # current one by the best
+            my (@q, $q_d2); # this may go into the queue
+            if ($c <= $cut) {
+                my $c1 = $c1->clone;
+                $c1->[$axis] = $cut;
+                $q_d2 = $v->dist2_to_box($c0, $c1);
+                @q = ($q_d2, $t->[_s1], $c0, $c1);
+
+                $t = $t->[_s0];
+                $c1 = $c1->clone;
+                $c1->[$axis] = $cut;
+            }
+            else {
+                my $c0 = $c0->clone;
+                $c0->[$axis] = $cut;
+                $q_d2 = $v->dist2_to_box($c0, $c1);
+                @q = ($q_d2, $t->[_s0], $c0, $c1);
+
+                $t = $t->[_s1];
+                $c0 = $c0->clone;
+                $c0->[$axis] = $cut;
+            }
+
+            # save the worst subtree into the queue for later
+            if ($q_d2 <= $best_d2) {
+                my $p;
+                for ($p = $#queue, $p >= 0; $p--) {
+                    last if $queue[$p][0] <= $q_d2;
+                }
+                splice @queue, $p + 1, 0, \@q;
+            }
         }
         else {
             for (@$t[1..$#$t]) {
                 next if $but and $but->{$_};
                 my $p = $vs->[$_];
                 my $d21 = $p->dist2($v);
-                if ($d21 < $d2) {
-                    $d2 = $d21;
-                    $ix = $_;
+                if ($d21 < $best_d2) {
+                    $best_d2 = $d21;
+                    $best_ix = $_;
                 }
             }
-            return ($ix, $d2)
+
+            my $q = pop @queue or last;
+            $q->[0] > $best_d2 and last;
+            (undef, $t, $c0, $c1) = @$q;
         }
     }
+
+    return ($best_ix, $best_d2)
 }
 
 sub find_nearest_neighbor_all_internal {
