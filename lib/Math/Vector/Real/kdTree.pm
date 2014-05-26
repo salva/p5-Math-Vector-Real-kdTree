@@ -28,11 +28,9 @@ use constant _leaf_size => _ixs + 1;
 
 sub new {
     my $class = shift;
-    my @v = map Math::Vector::Real::clone($_), @_;
-    my @ix = (0..$#v);
-    my $tree = _build(\@v, \@ix);
+    my @v = map V(@$_), @_;
     my $self = { vs   => \@v,
-                 tree => $tree };
+                 tree => (@v ? _build(\@v, [0..$#v]) : undef) };
     bless $self, $class;
 }
 
@@ -76,15 +74,21 @@ sub at {
 
 sub insert {
     my $self = shift;
-    return undef unless @_;
+    @_ or return;
     my $vs = $self->{vs};
     my $ix = @$vs;
-    for (@_) {
-        my $v = Math::Vector::Real::clone($_);
-        push @$vs, $v;
-        _insert($vs, $self->{tree}, $#$vs)
+    if (my $tree = $self->{tree}) {
+        for (@_) {
+            my $v = V(@$_);
+            push @$vs, $v;
+            _insert($vs, $self->{tree}, $#$vs)
+        }
     }
-    $ix;
+    else {
+        @$vs = map V(@$_), @_;
+        $self->{tree} = _build($vs, [0..$#$vs]);
+    }
+    return $ix;
 }
 
 # _insert does not return anything but modifies its $t argument in
@@ -96,7 +100,7 @@ sub _insert {
 
     # update aggregated values
     my $n = $t->[_n]++;
-    @{$t}[_c0, _c1] = Math::Vector::Real->box(@{$t}[_c0, _c1], $v);
+    @{$t}[_c0, _c1] = Math::Vector::Real->box($v, @{$t}[_c0, _c1]);
     $t->[_sum] += $v;
 
     if (defined (my $axis = $t->[_axis])) {
@@ -308,11 +312,11 @@ sub _find_nearest_neighbor {
         if (defined (my $axis = $t->[_axis])) {
             # substitute the current one by the best subtree and queue
             # the worst for later
-            ($t, my ($q)) = @{$t}[($v->[_axis] <= t->[_cut]) ? (_s0, _s1) : (_s1, _s0)];
+            ($t, my ($q)) = @{$t}[($v->[_axis] <= $t->[_cut]) ? (_s0, _s1) : (_s1, _s0)];
             my $q_d2 = $v->dist2_to_box(@{$q}[_c0, _c1]);
             if ($q_d2 <= $best_d2) {
                 my $j;
-                for ($j = $#queue_d2, $j >= 0; $j--) {
+                for ($j = $#queue_d2; $j >= 0; $j--) {
                     last if $queue_d2[$j] <= $q_d2;
                 }
                 splice @queue, ++$j, 0, $q;
@@ -343,56 +347,52 @@ sub _find_nearest_neighbor {
 }
 
 sub find_nearest_neighbor_all_internal {
-    my $self = shift;
+    my ($self, $d) = @_;
     my $vs = $self->{vs};
     return unless @$vs > 1;
-    my @best = ((0) x @$vs );
-    my $first = $vs->[0];
-    my @d2 = map $first->dist2($_), @$vs;
-    $best[0] = 1;
-    $d2[0] = $d2[1];
+    my $d2 = (defined $d ? $d * $d : 'inf');
+
+    my @best = ((undef) x @$vs);
+    my @d2   = (($d2)   x @$vs);
     _find_nearest_neighbor_all_internal($vs, $self->{tree}, \@best, \@d2);
-    if ($self->{hidden}) {
-        $best[$_] = undef for keys %{$self->{hidden}};
-    }
     return @best;
 }
 
 sub _find_nearest_neighbor_all_internal {
-    my ($vs, $t, $best, $d2) = @_;
-    if (defined $t->[_axis]) {
-        my ($axis, $s0, $s1, $median) = @$t;
-        my @r;
+    my ($vs, $t, $bests, $d2s) = @_;
+    if (defined (my $axis = $t->[_axis])) {
+        my @all_leafs;
         for my $side (0, 1) {
-            my @poles = _find_nearest_neighbor_all_internal($vs, $t->[_s0 + $side], $best, $d2);
-            push @r, @poles;
+            my @leafs = _find_nearest_neighbor_all_internal($vs, $t->[_s0 + $side], $bests, $d2s);
             my $other = $t->[_s1 - $side];
-            for my $pole (@poles) {
-                for my $ix (@$pole[1..$#$pole]) {
+            my ($c0, $c1) = @{$other}[_c0, _c1];
+            for my $leaf (@leafs) {
+                for my $ix (@{$leaf->[_ixs]}) {
                     my $v = $vs->[$ix];
-                    my $md = $v->[$axis] - $median;
-                    if ($d2->[$ix] > $md * $md) {
-                        ($best->[$ix], $d2->[$ix]) =
-                            _find_nearest_neighbor($vs, $other, $v, $best->[$ix], $d2->[$ix]);
+                    if ($v->dist2_to_box($c0, $c1) < $d2s->[$ix]) {
+                        ($bests->[$ix], $d2s->[$ix]) =
+                            _find_nearest_neighbor($vs, $other, $v, $bests->[$ix], $d2s->[$ix]);
                     }
                 }
             }
+            push @all_leafs, @leafs;
         }
-        return @r;
+        return @all_leafs;
     }
     else {
-        for my $i (2..$#$t) {
-            my $ix = $t->[$i];
-            my $iv = $vs->[$ix];
-            for my $jx (@$t[1..$i-1]) {
-                my $d21 = $iv->dist2($vs->[$jx]);
-                if ($d21 < $d2->[$ix]) {
-                    $d2->[$ix] = $d21;
-                    $best->[$ix] = $jx;
+        my $ixs = $t->[_ixs];
+        for my $i (1 .. $#$ixs) {
+            my $ix_i = $ixs->[$i];
+            my $v_i = $vs->[$ix_i];
+            for my $ix_j (@{$ixs}[0 .. $i - 1]) {
+                my $d2 = $v_i->dist2($vs->[$ix_j]);
+                if ($d2 < $d2s->[$ix_i]) {
+                    $d2s->[$ix_i] = $d2;
+                    $bests->[$ix_i] = $ix_j;
                 }
-                if ($d21 < $d2->[$jx]) {
-                    $d2->[$jx] = $d21;
-                    $best->[$jx] = $ix;
+                if ($d2 < $d2s->[$ix_j]) {
+                    $d2s->[$ix_j] = $d2;
+                    $bests->[$ix_j] = $ix_i;
                 }
             }
         }
@@ -407,31 +407,35 @@ sub find_in_ball {
 
 sub _find_in_ball {
     my ($vs, $t, $z, $d2, $but) = @_;
-    if (defined $t->[_axis]) {
-        my ($axis, $s0, $s1, $median) = @$t;
-        my $c = $z->[$axis];
-        my $dc = $c - $median;
-        my ($f, $s) = (($dc < 0) ? ($s0, $s1) : ($s1, $s0));
-        if ($dc * $dc <= $d2) {
-            if (wantarray) {
-                return (_find_in_ball($vs, $f, $z, $d2, $but),
-                        _find_in_ball($vs, $s, $z, $d2, $but))
-            }
-            else {
-                return (_find_in_ball($vs, $f, $z, $d2, $but) +
-                        _find_in_ball($vs, $s, $z, $d2, $but));
-            }
+    my @queue;
+    my (@r, $r);
+
+    while (1) {
+        if (defined (my $axis = $t->[_axis])) {
+            my $c = $z->[$axis];
+            my $cut = $t->[_cut];
+            ($t, my ($q)) = @{$t}[$c <= $cut ? (_s0, _s1) : (_s1, _s0)];
+            push @queue, $q if $z->dist2_to_box(@{$q}[_c0, _c1]) <= $d2;
         }
         else {
-            return _find_in_ball($vs, $f, $z, $d2, $but);
+            my $ixs = $t->[_ixs];
+            if (wantarray) {
+                push @r, grep { $vs->[$_]->dist2($z) <= $d2 } @$ixs;
+            }
+            else {
+                $r += ( $but
+                        ? grep { !$but->{$_} and $vs->[$_]->dist2($z) <= $d2 } @$ixs
+                        : grep { $vs->[$_]->dist2($z) <= $d2 } @$ixs );
+            }
         }
+
+        $t = pop @queue or last;
     }
-    elsif ($but) {
-        return grep { !$but->{$_} and $vs->[$_]->dist2($z) <= $d2 } @$t[1..$#$t]
+
+    if (wantarray) {
+        return ($but ? grep !$but->{$_}, @r : @r);
     }
-    else {
-        return grep { $vs->[$_]->dist2($z) <= $d2 } @$t[1..$#$t]
-    }
+    return $r;
 }
 
 sub ordered_by_proximity {
@@ -450,7 +454,7 @@ sub _ordered_by_proximity {
         _ordered_by_proximity($t->[_s1], $r);
     }
     else {
-        push @$r, @{$t}[1..$#$t];
+        push @$r, @{$t->[_ixs]}
     }
 }
 
