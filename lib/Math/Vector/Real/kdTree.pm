@@ -287,8 +287,7 @@ sub find_nearest_neighbor {
 
     my $d2 = (defined $d ? $d * $d : 'inf');
 
-    my ($rix, $rd2) = _find_nearest_neighbor($vs, $self->{tree}, @{$self->{box}},
-                                             $v, $d2, undef, $but);
+    my ($rix, $rd2) = _find_nearest_neighbor($vs, $self->{tree}, $v, $d2, undef, $but);
     $rix // return;
     wantarray ? ($rix, sqrt($rd2)) : $rix;
 }
@@ -300,67 +299,47 @@ sub find_nearest_neighbor_internal {
 }
 
 sub _find_nearest_neighbor {
-    my ($vs, $t, $c0, $c1, $v, $best_d2, $best_ix, $but) = @_;
+    my ($vs, $t, $v, $best_d2, $best_ix, $but) = @_;
 
-    # element are pushed into the queue as [d2, t, c0, c1]
     my @queue;
+    my @queue_d2;
 
     while (1) {
         if (defined (my $axis = $t->[_axis])) {
-            my $cut = $t->[_cut];
-            my $c = $v->[_axis];
-
-            # calculate the worst subtree and then substitute the
-            # current one by the best
-            my (@q, $q_d2); # this may go into the queue
-            if ($c <= $cut) {
-                my $c1 = $c1->clone;
-                $c1->[$axis] = $cut;
-                $q_d2 = $v->dist2_to_box($c0, $c1);
-                @q = ($q_d2, $t->[_s1], $c0, $c1);
-
-                $t = $t->[_s0];
-                $c1 = $c1->clone;
-                $c1->[$axis] = $cut;
-            }
-            else {
-                my $c0 = $c0->clone;
-                $c0->[$axis] = $cut;
-                $q_d2 = $v->dist2_to_box($c0, $c1);
-                @q = ($q_d2, $t->[_s0], $c0, $c1);
-
-                $t = $t->[_s1];
-                $c0 = $c0->clone;
-                $c0->[$axis] = $cut;
-            }
-
-            # save the worst subtree into the queue for later
+            # substitute the current one by the best subtree and queue
+            # the worst for later
+            ($t, my ($q)) = @{$t}[($v->[_axis] <= t->[_cut]) ? (_s0, _s1) : (_s1, _s0)];
+            my $q_d2 = $v->dist2_to_box(@{$q}[_c0, _c1]);
             if ($q_d2 <= $best_d2) {
-                my $p;
-                for ($p = $#queue, $p >= 0; $p--) {
-                    last if $queue[$p][0] <= $q_d2;
+                my $j;
+                for ($j = $#queue_d2, $j >= 0; $j--) {
+                    last if $queue_d2[$j] <= $q_d2;
                 }
-                splice @queue, $p + 1, 0, \@q;
+                splice @queue, ++$j, 0, $q;
+                splice @queue_d2, $j, 0, $q_d2;
             }
         }
         else {
-            for (@$t[1..$#$t]) {
+            for (@{$t->[_ixs]}) {
                 next if $but and $but->{$_};
-                my $p = $vs->[$_];
-                my $d21 = $p->dist2($v);
-                if ($d21 < $best_d2) {
+                my $d21 = $vs->[$_]->dist2($v);
+                if ($d21 <= $best_d2) {
                     $best_d2 = $d21;
                     $best_ix = $_;
                 }
             }
 
-            my $q = pop @queue or last;
-            $q->[0] > $best_d2 and last;
-            (undef, $t, $c0, $c1) = @$q;
+            if ($t = pop @queue) {
+                if ($best_d2 >= pop @queue_d2) {
+                    next;
+                }
+            }
+
+            return ($best_ix, $best_d2);
         }
     }
 
-    return ($best_ix, $best_d2)
+
 }
 
 sub find_nearest_neighbor_all_internal {
