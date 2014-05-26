@@ -23,7 +23,7 @@ use constant _axis => 6; # cut axis
 use constant _cut  => 7; # cut point (mediam)
 
 # on leaf nodes:
-use constant _ixs   => 4
+use constant _ixs   => 4;
 use constant _leaf_size => _ixs + 1;
 
 sub new {
@@ -46,24 +46,24 @@ sub clone {
 }
 
 sub _build {
-    my ($v, $ix) = @_;
-    if (@$ix > $recommended_per_pole) {
-        my ($b, $t) = Math::Vector::Real->box(@$v[@$ix]);
+    my ($v, $ixs) = @_;
+    if (@$ixs > $recommended_per_pole) {
+        my ($b, $t) = Math::Vector::Real->box(@$v[@$ixs]);
         my $axis = ($t - $b)->max_component_index;
-        my $bstart = @$ix >> 1;
-        my ($p0, $p1) = nkeypartref { $v->[$_][$axis] } $bstart => @$ix;
+        my $bstart = @$ixs >> 1;
+        my ($p0, $p1) = nkeypartref { $v->[$_][$axis] } $bstart => @$ixs;
         my $s0 = _build($v, $p0);
         my $s1 = _build($v, $p1);
         my ($c0, $c1) = Math::Vector::Real->box(@{$s0}[_c0, _c1], @{$s1}[_c0, _c1]);
         my $cut = 0.5 * ($s0->[_c1][$axis] + $s1->[_c0][$axis]);
         # [n sum s0 s1 axis cut]
-        [scalar(@$ix), $c0, $c1, $s0->[_sum] + $s1->[_sum], $s0, $s1, $axis, $cut];
+        [scalar(@$ixs), $c0, $c1, $s0->[_sum] + $s1->[_sum], $s0, $s1, $axis, $cut];
     }
     else {
         # [n, sum, ixs]
         my @vs = @{$v}[@$ixs];
         my ($c0, $c1) = Math::Vector::Real->box(@vs);
-        [scalar(@$ix), $c0, $c1, Math::Vector::Real->sum(@vs), $ix];
+        [scalar(@$ixs), $c0, $c1, Math::Vector::Real->sum(@vs), $ixs];
     }
 }
 
@@ -92,9 +92,12 @@ sub insert {
 
 sub _insert {
     my ($vs, $t, $ix) = @_;
-    my $n = $t->[_n]++;
     my $v = $vs->[$ix];
-    @{$t}[_c0, _c1] = Math::Vector::Real->box(@{$t}[_c0, _c1], $v)
+
+    # update aggregated values
+    my $n = $t->[_n]++;
+    @{$t}[_c0, _c1] = Math::Vector::Real->box(@{$t}[_c0, _c1], $v);
+    $t->[_sum] += $v;
 
     if (defined (my $axis = $t->[_axis])) {
         my $cut = $t->[_cut];
@@ -143,36 +146,44 @@ sub move {
 
 sub _delete {
     my ($vs, $t, $ix) = @_;
-    if (defined $t->[_axis]) {
-        my ($axis, $s0, $s1, $median) = @$t;
-        #print "axis: $axis, ix: $ix\n";
-        my $c = $vs->[$ix][$axis];
-        if ($c <= $median and _delete($vs, $s0, $ix)) {
-            if ($#$s0 == 0) {
-                # when one subnode is empty, promote the other up:
+    if (defined (my $axis = $t->[_axis])) {
+        my $v = $vs->[$ix];
+        my $c = $v->[$axis];
+        my ($s0, $s1, $cut) = @{$t}[_s0, _s1, _cut];
+        if ($c <= $cut and _delete($vs, $s0, $ix)) {
+            if ($s0->[_n]) {
+                $t->[_n]--;
+                $t->[_sum] -= $v;
+            }
+            else {
+                # when one subnode becomes empty, the other gets promoted up:
                 @$t = @$s1;
             }
-            else {
-                $t->[_n]--;
-            }
             return 1;
         }
-        elsif ($c >= $median and _delete($vs, $s1, $ix)) {
-            if ($#$s1 == 0) {
+        elsif ($c >= $cut and _delete($vs, $s1, $ix)) {
+            if ($s1->[_n]) {
+                $t->[_n]--;
+                $t->[_sum] -= $v;
+            }
+            else {
                 @$t = @$s0;
             }
-            else {
-                $t->[_n]--;
-            }
             return 1;
         }
-        return 0;
     }
     else {
-        my $s0 = scalar @$t;
-        @$t = grep { not (defined($_) and ($_ == $ix)) } @$t;
-        return @$t < $s0;
+        my $ixs = $t->[_ixs];
+        for (0..$#$ixs) {
+            if ($ixs->[$_] == $ix) {
+                splice(@$ixs, $_, 1);
+                $t->[_n]--;
+                $t->[_sum] -= $vs->[$ix];
+                return 1;
+            }
+        }
     }
+    return 0;
 }
 
 sub hide {
@@ -185,37 +196,51 @@ sub hide {
 
 sub _push_all {
     my ($t, $store) = @_;
-    if (defined $t->[_axis]) {
-        _push_all($t->[_s0], $store);
-        _push_all($t->[_s1], $store);
-    }
-    else {
-        push @$store, @$t[1..$#$t]
+    my @q;
+    while ($t) {
+        if (defined $t->[_axis]) {
+            push @q, $t->[_s1];
+            $t = $t->[_s0];
+        }
+        else {
+            push @$store, @{$t->[_ixs]};
+            $t = pop @q;
+        }
     }
 }
 
 sub path {
-    my ($self, $vix) = @_;
-    use Data::Dumper;
-    # print Dumper $self->{tree};
-    my $p = _path($self->{tree}, $vix);
-    # print "path length: ", scalar(@$p), "\n";
+    my ($self, $ix) = @_;
+    my $p = _path($self->{vs}, $self->{tree}, $ix);
     my $l = 1;
     $l = (($l << 1) | $_) for @$p;
     $l
 }
 
 sub _path {
-    my ($t, $vix) = @_;
-    if (defined $t->[_axis]) {
-        for (0, 1) {
-            my $p = _path($t->[_s0 + $_], $vix);
-            return [$_, @$p] if $p;
+    my ($vs, $t, $ix) = @_;
+    if (defined (my $axis = $t->[_axis])) {
+        my $v = $vs->[$ix];
+        my $c = $v->[$axis];
+        my $cut = $t->[_cut];
+        my $p;
+        if ($c <= $cut) {
+            if ($p = _path($vs, $t->[_s0], $ix)) {
+                unshift @$p, 0;
+                return $p;
+            }
         }
-        return undef;
+        if ($c >= $cut) {
+            if ($p = _path($vs, $t->[_s1], $ix)) {
+                unshift @$p, 1;
+                return $p;
+            }
+        }
     }
-    #print "is $vix in @$t[1..$#$t]?\n";
-    ((grep $_ == $vix, @$t[1..$#$t]) ? [] : ());
+    else {
+        return [] if grep $_ == $ix, @{$t->[_ixs]}
+    }
+    ()
 }
 
 sub find {
@@ -225,28 +250,25 @@ sub find {
 
 sub _find {
     my ($vs, $t, $v) = @_;
-    while (1) {
-        if (defined $t->[_axis]) {
-            my ($axis, $s0, $s1, $median) = @$t;
-            my $c = $v->[$axis];
-            if ($c < $median) {
-                $t = $s0;
-            }
-            else {
-                if ($c == $median) {
-                    my $ix = _find($vs, $s0, $v);
-                    return $ix if defined $ix;
-                }
-                $t = $s1;
-            }
+    while (defined (my $axis = $t->[_axis])) {
+        my $cut = $t->[_cut];
+        my $c = $v->[$axis];
+        if ($c < $cut) {
+            $t = $t->[_s0];
         }
         else {
-            for (@$t[1..$#$t]) {
-                return $_ if $v == $vs->[$_];
+            if ($c == $cut) {
+                my $ix = _find($vs, $t->[_s0], $v);
+                return $ix if defined $ix;
             }
-            return undef;
+            $t = $t->[_s1];
         }
     }
+
+    for (@{$t->[_ixs]}) {
+        return $_ if $vs->[$_] == $v;
+    }
+    ()
 }
 
 sub find_nearest_neighbor {
@@ -283,9 +305,9 @@ sub find_nearest_neighbor {
 }
 
 sub find_nearest_neighbor_internal {
-    my ($self, $vix, $d) = @_;
-    $vix >= 0 or croak "index out of range";
-    $self->find_nearest_neighbor($self->{vs}[$vix], $d, $vix);
+    my ($self, $ix, $d) = @_;
+    $ix >= 0 or croak "index out of range";
+    $self->find_nearest_neighbor($self->{vs}[$ix], $d, $ix);
 }
 
 sub _find_nearest_neighbor {
