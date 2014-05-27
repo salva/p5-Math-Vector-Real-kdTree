@@ -1,6 +1,6 @@
 package Math::Vector::Real::kdTree;
 
-our $VERSION = '0.09';
+our $VERSION = '0.10';
 
 use 5.010;
 use strict;
