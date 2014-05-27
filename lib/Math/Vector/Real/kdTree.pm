@@ -277,6 +277,7 @@ sub _find {
 
 sub find_nearest_neighbor {
     my ($self, $v, $d, @but) = @_;
+    my $t = $self->{tree} or return;
     my $vs = $self->{vs};
     my $but;
     if (@but) {
@@ -291,7 +292,7 @@ sub find_nearest_neighbor {
 
     my $d2 = (defined $d ? $d * $d : 'inf');
 
-    my ($rix, $rd2) = _find_nearest_neighbor($vs, $self->{tree}, $v, $d2, undef, $but);
+    my ($rix, $rd2) = _find_nearest_neighbor($vs, $t, $v, $d2, undef, $but);
     $rix // return;
     wantarray ? ($rix, sqrt($rd2)) : $rix;
 }
@@ -312,12 +313,12 @@ sub _find_nearest_neighbor {
         if (defined (my $axis = $t->[_axis])) {
             # substitute the current one by the best subtree and queue
             # the worst for later
-            ($t, my ($q)) = @{$t}[($v->[_axis] <= $t->[_cut]) ? (_s0, _s1) : (_s1, _s0)];
+            ($t, my ($q)) = @{$t}[($v->[$axis] <= $t->[_cut]) ? (_s0, _s1) : (_s1, _s0)];
             my $q_d2 = $v->dist2_to_box(@{$q}[_c0, _c1]);
             if ($q_d2 <= $best_d2) {
                 my $j;
                 for ($j = $#queue_d2; $j >= 0; $j--) {
-                    last if $queue_d2[$j] <= $q_d2;
+                    last if $queue_d2[$j] >= $q_d2;
                 }
                 splice @queue, ++$j, 0, $q;
                 splice @queue_d2, $j, 0, $q_d2;
@@ -342,8 +343,6 @@ sub _find_nearest_neighbor {
             return ($best_ix, $best_d2);
         }
     }
-
-
 }
 
 sub find_nearest_neighbor_all_internal {
@@ -371,7 +370,7 @@ sub _find_nearest_neighbor_all_internal {
                     my $v = $vs->[$ix];
                     if ($v->dist2_to_box($c0, $c1) < $d2s->[$ix]) {
                         ($bests->[$ix], $d2s->[$ix]) =
-                            _find_nearest_neighbor($vs, $other, $v, $bests->[$ix], $d2s->[$ix]);
+                            _find_nearest_neighbor($vs, $other, $v, $d2s->[$ix], $bests->[$ix]);
                     }
                 }
             }
@@ -458,6 +457,42 @@ sub _ordered_by_proximity {
     }
 }
 
+sub _dump {
+    my ($vs, $t, $offset, $opts) = @_;
+    my ($n, $c0, $c1, $sum) = @{$t}[_n, _c0, _c1, _sum];
+    if (defined (my $axis = $t->[_axis])) {
+        my ($s0, $s1, $cut) = @{$t}[_s0, _s1, _cut];
+        print (" " x $offset, "n: $n, c0: $c0, c1: $c1, sum: $sum, axis: $axis, cut: $cut\n");
+        _dump($vs, $s0, $offset + $opts->{indent}, $opts);
+        _dump($vs, $s1, $offset + $opts->{indent}, $opts);
+    }
+    else {
+        print(" " x $offset, "n: $n, c0: $c0, c1: $c1, sum: $sum\n");
+        print(" " x ($offset + $opts->{indent}), "ixs: [");
+        if ($opts->{dump_vectors} // 1) {
+            print join(", ", map "$_ $vs->[$_]", @{$t->[_ixs]});
+        }
+        else {
+            print join(", ", @{$t->[_ixs]});
+        }
+        print("]\n");
+    }
+}
+
+sub dump {
+    my ($self, %opts) = @_;
+    my $offset = $opts{indent} //= 4;
+    my $vs = $self->{vs};
+    my $nvs = @$vs;
+    my $hidden = join ", ", keys %{$self->{hidden} || {}};
+    print "tree: n: $nvs, hidden: {$hidden}\n";
+    if (my $t = $self->{tree}) {
+        _dump($vs, $t, $offset, \%opts);
+    }
+    else {
+        print (" " x $offset, "(empty)\n");
+    }
+}
 
 1;
 __END__

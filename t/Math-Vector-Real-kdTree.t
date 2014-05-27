@@ -52,12 +52,16 @@ sub test_neighbors {
         push @d1, $eo->dist2($en1);
         push @d2, $eo->dist2($en2);
     }
-    is "@d1", "@d2", $msg;
+    is "@d1", "@d2", $msg
+        or do {
+            diag "break me!";
+        };
 }
 
 my %gen = ( num => sub { rand },
             int => sub { int rand(10) } );
 
+#srand 318275924;
 diag "srand: " . srand;
 for my $g (keys %gen) {
     for my $d (1, 2, 3, 10) {
@@ -67,19 +71,32 @@ for my $g (keys %gen) {
             my @nbf = neighbors_bruteforce(@o);
 
             my $t = Math::Vector::Real::kdTree->new(@o);
-            my @n = $t->find_nearest_neighbor_all_internal;
-            is ($#n, $#o, "find_nearest_neighbor_all_internal - build - $id");
+
+            my @n = map scalar($t->find_nearest_neighbor_internal($_)), 0..$#o;
+            is ($#n, $#o, "count find_nearest_neighbor_internal - build - $id");
+            test_neighbors(\@o, \@n, \@nbf, "find_nearest_neighbor_internal - build - $id");
+            is_deeply([map $t->at($_), 0..$#o], \@o , "at - build - after find_nearest_neighbor_internal - $id");
+
+            @n = $t->find_nearest_neighbor_all_internal;
+            is ($#n, $#o, "count find_nearest_neighbor_all_internal - build - $id");
             test_neighbors(\@o, \@n, \@nbf, "find_nearest_neighbor_all_internal - build - $id");
+            is_deeply([map $t->at($_), 0..$#o], \@o , "at - build - after find_nearest_neighbor_all_internal - $id");
 
             $t = Math::Vector::Real::kdTree->new;
             for my $ix (0..$#o) {
                 $t->insert($o[$ix]);
                 my @obp = $t->ordered_by_proximity;
                 is ($ix, $#obp, "ordered_by_proxymity - count - $id, ix: $ix");
+                is_deeply([map $t->at($_), 0..$ix], [@o[0..$ix]], "at - $id, ix: $ix");
             }
+
+            @n = map scalar($t->find_nearest_neighbor_internal($_)), 0..$#o;
+            test_neighbors(\@o, \@n, \@nbf, "find_nearest_neighbor_internal - insert - $id");
+            is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after find_nearest_neighbor_internal - $id");
+
             @n = $t->find_nearest_neighbor_all_internal;
             test_neighbors(\@o, \@n, \@nbf, "find_nearest_neighbor_all_internal - insert - $id");
+            is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after find_nearest_neighbor_all_internal - $id");
         }
     }
 }
-
