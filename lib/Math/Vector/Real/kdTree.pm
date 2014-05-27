@@ -457,41 +457,46 @@ sub _ordered_by_proximity {
     }
 }
 
-sub _dump {
-    my ($vs, $t, $offset, $opts) = @_;
+sub _dump_to_string {
+    my ($vs, $t, $indent, $opts) = @_;
     my ($n, $c0, $c1, $sum) = @{$t}[_n, _c0, _c1, _sum];
     if (defined (my $axis = $t->[_axis])) {
         my ($s0, $s1, $cut) = @{$t}[_s0, _s1, _cut];
-        print (" " x $offset, "n: $n, c0: $c0, c1: $c1, sum: $sum, axis: $axis, cut: $cut\n");
-        _dump($vs, $s0, $offset + $opts->{indent}, $opts);
-        _dump($vs, $s1, $offset + $opts->{indent}, $opts);
+        return ( "${indent}n: $n, c0: $c0, c1: $c1, sum: $sum, axis: $axis, cut: $cut\n" .
+                 _dump_to_string($vs, $s0, "$indent$opts->{tab}", $opts) .
+                 _dump_to_string($vs, $s1, "$indent$opts->{tab}", $opts) );
     }
     else {
-        print(" " x $offset, "n: $n, c0: $c0, c1: $c1, sum: $sum\n");
-        print(" " x ($offset + $opts->{indent}), "ixs: [");
+        my $o = ( "${indent}n: $n, c0: $c0, c1: $c1, sum: $sum\n" .
+                  "${indent}$opts->{tab}ixs: [" );
         if ($opts->{dump_vectors} // 1) {
-            print join(", ", map "$_ $vs->[$_]", @{$t->[_ixs]});
+            $o .= join(", ", map "$_ $vs->[$_]", @{$t->[_ixs]});
         }
         else {
-            print join(", ", @{$t->[_ixs]});
+            $o .= join(", ", @{$t->[_ixs]});
         }
-        print("]\n");
+        return $o . "]\n";
+    }
+}
+
+sub dump_to_string {
+    my ($self, %opts) = @_;
+    my $tab = $opts{tab} //= '    ';
+    my $vs = $self->{vs};
+    my $nvs = @$vs;
+    my $hidden = join ", ", keys %{$self->{hidden} || {}};
+    my $o = "tree: n: $nvs, hidden: {$hidden}\n";
+    if (my $t = $self->{tree}) {
+        return $o . _dump_to_string($vs, $t, $tab, \%opts);
+    }
+    else {
+        return "$o${tab}(empty)\n";
     }
 }
 
 sub dump {
-    my ($self, %opts) = @_;
-    my $offset = $opts{indent} //= 4;
-    my $vs = $self->{vs};
-    my $nvs = @$vs;
-    my $hidden = join ", ", keys %{$self->{hidden} || {}};
-    print "tree: n: $nvs, hidden: {$hidden}\n";
-    if (my $t = $self->{tree}) {
-        _dump($vs, $t, $offset, \%opts);
-    }
-    else {
-        print (" " x $offset, "(empty)\n");
-    }
+    my $self = shift;
+    print $self->dump_to_string(@_);
 }
 
 1;
