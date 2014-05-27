@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 6617;
+use Test::More tests => 6937;
 
 use_ok('Math::Vector::Real::kdTree');
 
@@ -87,8 +87,8 @@ for my $g (keys %gen) {
                 $t->insert($o[$ix]);
                 my @obp = $t->ordered_by_proximity;
                 is ($ix, $#obp, "ordered_by_proxymity - count - $id, ix: $ix");
-                is_deeply([map $t->at($_), 0..$ix], [@o[0..$ix]], "at - $id, ix: $ix");
             }
+            is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after insert - $id");
 
             @n = map scalar($t->find_nearest_neighbor_internal($_)), 0..$#o;
             test_neighbors(\@o, \@n, \@nbf, "find_nearest_neighbor_internal - insert - $id");
