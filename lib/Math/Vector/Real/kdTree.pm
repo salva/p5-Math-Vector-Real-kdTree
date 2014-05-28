@@ -8,7 +8,7 @@ use warnings;
 use Carp;
 
 use Math::Vector::Real;
-use Sort::Key::Top qw(nkeypartref nhead ntail);
+use Sort::Key::Top qw(nkeypartref nhead ntail nkeyhead);
 
 our $max_per_pole = 12;
 our $recommended_per_pole = 6;
@@ -443,6 +443,249 @@ sub _find_in_ball {
     return $r;
 }
 
+sub find_farthest_vector {
+    my ($self, $v, $d, @but) = @_;
+    my $t = $self->{tree} or return;
+    my $vs = $self->{vs};
+    my $d2 = ($d ? $d * $d : 0);
+    my $but;
+    if (@but) {
+        if (@but == 1 and ref $but[0] eq 'HASH') {
+            $but = $but[0];
+        }
+        else {
+            my %but = map { $_ => 1 } @but;
+            $but = \%but;
+        }
+    }
+
+    my ($rix, $rd2) = _find_farthest_vector($vs, $t, $v, $d2, undef, $but);
+    $rix // return;
+    wantarray ? ($rix, sqrt($d2)) : $rix;
+}
+
+sub find_farthest_vector_internal {
+    my ($self, $ix, $d) = @_;
+    $ix >= 0 or croak "index out of range";
+    $self->find_farthest_vector($self->{vs}[$ix], $d, $ix);
+}
+
+sub _find_farthest_vector {
+    my ($vs, $t, $v, $best_d2, $best_ix, $but) = @_;
+
+    my @queue;
+    my @queue_d2;
+
+    while (1) {
+        if (defined (my $axis = $t->[_axis])) {
+            # substitute the current one by the best subtree and queue
+            # the worst for later
+            ($t, my ($q)) = @{$t}[($v->[$axis] >= $t->[_cut]) ? (_s0, _s1) : (_s1, _s0)];
+            my $q_d2 = $v->max_dist2_to_box(@{$q}[_c0, _c1]);
+            if ($q_d2 >= $best_d2) {
+                my $j;
+                for ($j = $#queue_d2; $j >= 0; $j--) {
+                    last if $queue_d2[$j] <= $q_d2;
+                }
+                splice @queue, ++$j, 0, $q;
+                splice @queue_d2, $j, 0, $q_d2;
+            }
+        }
+        else {
+            for (@{$t->[_ixs]}) {
+                next if $but and $but->{$_};
+                my $d21 = $vs->[$_]->dist2($v);
+                if ($d21 >= $best_d2) {
+                    $best_d2 = $d21;
+                    $best_ix = $_;
+                }
+            }
+
+            if ($t = pop @queue) {
+                if ($best_d2 <= pop @queue_d2) {
+                    next;
+                }
+            }
+            return ($best_ix, $best_d2);
+        }
+    }
+}
+
+sub k_means_start {
+    my ($self, $n_req) = @_;
+    $n_req = int($n_req) or return;
+    my $t = $self->{tree} or return;
+    my $vs = $self->{vs};
+    _k_means_start($vs, $t, $n_req);
+}
+
+sub _k_means_start {
+    my ($vs, $t, $n_req) = @_;
+    if ($n_req <= 1) {
+        return ($n_req ? $t->[_sum] / $t->[_n] : ());
+    }
+    else {
+        my $n = $t->[_n];
+        if (defined $t->[_axis]) {
+            my ($s0, $s1) = @{$t}[_s0, _s1];
+            my $n0 = $s0->[_n];
+            my $n1 = $s1->[_n];
+            my $n0_req = int(0.5 + $n_req * ($n0 / $n));
+            $n0_req = $n0 if $n0_req > $n0;
+            return (_k_means_start($vs, $s0, $n0_req),
+                    _k_means_start($vs, $s1, $n_req - $n0_req));
+        }
+        else {
+            my $ixs = $t->[_ixs];
+            my @out;
+            for (0..$#$ixs) {
+                push @out, $vs->[$ixs->[$_]]
+                    if rand($n_req - @out) <= ($n - $_);
+            }
+            return @out;
+        }
+    }
+}
+
+sub k_means_loop {
+    my ($self, @k) = @_;
+    @k or next;
+    my $t = $self->{tree} or next;
+    my $vs = $self->{vs};
+    while (1) {
+        my $diffs;
+        my @n = ((0) x @k);
+        my @sum = ((undef) x @k);
+
+        _k_means_step($vs, $t, \@k, [0..$#k], \@n, \@sum);
+
+        for (0..$#k) {
+            if (my $n = $n[$_]) {
+                my $k = $sum[$_] / $n;
+                $diffs++ if $k != $k[$_];
+                $k[$_] = $k;
+            }
+        }
+        unless ($diffs) {
+            return (wantarray ? @k : $k[0]);
+        }
+    }
+}
+
+sub k_means_step {
+    my $self = shift;
+    @_ or return;
+    my $t = $self->{tree} or return;
+    my $vs = $self->{vs};
+
+    my @n = ((0) x @_);
+    my @sum = ((undef) x @_);
+
+   _k_means_step($vs, $t, \@_, [0..$#_], \@n, \@sum);
+
+    for (0..$#n) {
+        if (my $n = $n[$_]) {
+            $sum[$_] /= $n;
+        }
+        else {
+            # otherwise let the original value stay
+            $sum[$_] = $_[$_];
+        }
+    }
+    wantarray ? @sum : $sum[0];
+}
+
+sub _k_means_step {
+    my ($vs, $t, $centers, $cixs, $ns, $sums) = @_;
+    my ($n, $sum, $c0, $c1) = @{$t}[_n, _sum, _c0, _c1];
+    if ($n) {
+        my $centroid = $sum/$n;
+        my $best = nkeyhead { $centroid->dist2($centers->[$_]) } @$cixs;
+        my $max_d2 = Math::Vector::Real::max_dist2_to_box($centers->[$best], $c0, $c1);
+        my @down = grep { Math::Vector::Real::dist2_to_box($centers->[$_], $c0, $c1) <= $max_d2 } @$cixs;
+        if (@down <= 1) {
+            $ns->[$best] += $n;
+            # FIXME: M::V::R objects should support this undef + vector logic natively!
+            if (defined $sums->[$best]) {
+                $sums->[$best] += $sum;
+            }
+            else {
+                $sums->[$best] = V(@$sum);
+            }
+        }
+        else {
+            if (defined (my $axis = $t->[_axis])) {
+                my ($s0, $s1) = @{$t}[_s0, _s1];
+                _k_means_step($vs, $t->[_s0], $centers, \@down, $ns, $sums);
+                _k_means_step($vs, $t->[_s1], $centers, \@down, $ns, $sums);
+            }
+            else {
+                for my $ix (@{$t->[_ixs]}) {
+                    my $v = $vs->[$ix];
+                    my $best = nkeyhead { $v->dist2($centers->[$_]) } @down;
+                    $ns->[$best]++;
+                    if (defined $sums->[$best]) {
+                        $sums->[$best] += $v;
+                    }
+                    else {
+                        $sums->[$best] = V(@$v);
+                    }
+                }
+            }
+        }
+    }
+}
+
+sub k_means_assign {
+    my $self = shift;
+    @_ or return;
+    my $t = $self->{tree} or return;
+    my $vs = $self->{vs};
+
+    my @out = ((undef) x @$vs);
+   _k_means_assign($vs, $t, \@_, [0..$#_], \@out);
+    @out;
+}
+
+sub _k_means_assign {
+    my ($vs, $t, $centers, $cixs, $outs) = @_;
+    my ($n, $sum, $c0, $c1) = @{$t}[_n, _sum, _c0, _c1];
+        if ($n) {
+        my $centroid = $sum/$n;
+        my $best = nkeyhead { $centroid->dist2($centers->[$_]) } @$cixs;
+        my $max_d2 = Math::Vector::Real::max_dist2_to_box($centers->[$best], $c0, $c1);
+        my @down = grep { Math::Vector::Real::dist2_to_box($centers->[$_], $c0, $c1) <= $max_d2 } @$cixs;
+        if (@down <= 1) {
+            _k_means_assign_1($t, $best, $outs);
+        }
+        else {
+            if (defined (my $axis = $t->[_axis])) {
+                my ($s0, $s1) = @{$t}[_s0, _s1];
+                _k_means_assign($vs, $t->[_s0], $centers, \@down, $outs);
+                _k_means_assign($vs, $t->[_s1], $centers, \@down, $outs);
+            }
+            else {
+                for my $ix (@{$t->[_ixs]}) {
+                    my $v = $vs->[$ix];
+                    my $best = nkeyhead { $v->dist2($centers->[$_]) } @down;
+                    $outs->[$ix] = $best;
+                }
+            }
+        }
+    }
+}
+
+sub _k_means_assign_1 {
+    my ($t, $best, $outs) = @_;
+    if (defined (my $axis = $t->[_axis])) {
+        _k_means_assign_1($t->[_s0], $best, $outs);
+        _k_means_assign_1($t->[_s1], $best, $outs);
+    }
+    else {
+        $outs->[$_] = $best for @{$t->[_ixs]};
+    }
+}
+
 sub ordered_by_proximity {
     my $self = shift;
     my @r;
@@ -529,8 +772,10 @@ Math::Vector::Real::kdTree - kd-Tree implementation on top of Math::Vector::Real
 
 =head1 DESCRIPTION
 
-This module implements a kd-Tree data structure in Perl and some
-related algorithms.
+This module implements a kd-Tree data structure in Perl and common
+algorithms on top of it.
+
+=head2 Methods
 
 The following methods are provided:
 
@@ -590,6 +835,45 @@ algorithm):
             scalar $t->nearest_vector($t->at($_), undef, $_)
         } 0..($t->size - 1);
 
+=item $ix = $t->find_farthest_vector($p, $min_d, @but_ix)
+
+Find the point from the tree farthest from the given C<$p>.
+
+The optional argument C<$min_d> specifies a minimal distance. Undef is
+returned when not point farthest that it is found.
+
+C<@but_ix> specifies points that should not be considered when looking
+for the farthest point.
+
+=item $ix = $t->find_farthest_vector_internal($ix, $min_d, @but_ix)
+
+Given the index of a point on the tree this method returns the index
+of the farthest vector also from the tree.
+
+=item @k = $t->k_means_start($n)
+
+This method uses the internal tree structure to generate a set of
+point that can be used as seeds for other C<k_means> methods.
+
+There isn't any guarantee on the quality of the generated seeds, but
+the used algorithm seems to perform well in practice.
+
+=item @k = $t->k_means_step(@k)
+
+Performs a step of the L<Lloyd's
+algorithm|http://en.wikipedia.org/wiki/Lloyd%27s_algorithm> for
+k-means calculation.
+
+=item @k = $t->k_means_loop(@k)
+
+Iterates until the Lloyd's algorithm converges and returns the final
+means.
+
+=item @ix = $t->k_means_assign(@k)
+
+Returns for every point in the three the index of the cluster it
+belongs to.
+
 =item @ix = $t->find_in_ball($z, $d, $but)
 
 =item $n = $t->find_in_ball($z, $d, $but)
@@ -609,6 +893,28 @@ Returns the indexes of the points in an ordered where is likely that
 the indexes of near vectors are also in near positions in the list.
 
 =back
+
+=head2 k-means
+
+The module can be used to calculate the k-means of a set of vectors as follows:
+
+  # inputs
+  my @v = ...; my $k = ...;
+  
+  # k-mean calculation
+  my $t = Math::Vector::Real::kdTree->new(@v);
+  my @means = $t->k_means_start($k);
+  @means = $t->k_means_loop(@means);
+  @assign = $t->k_means_assign(@means);
+  my @cluster = map [], 1..$k;
+  for (0..$#assign) {
+    my $cluster_ix = $assign[$_];
+    my $cluster = $cluster[$cluster_ix];
+    push @$cluster, $t->at($_);
+  }
+  
+  use Data::Dumper;
+  print Dumper \@cluster;
 
 =head1 SEE ALSO
 
