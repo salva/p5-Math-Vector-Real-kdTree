@@ -275,10 +275,12 @@ sub _find {
     ()
 }
 
-sub find_nearest_neighbor {
+sub find_nearest_vector {
     my ($self, $v, $d, @but) = @_;
     my $t = $self->{tree} or return;
     my $vs = $self->{vs};
+    my $d2 = (defined $d ? $d * $d : 'inf');
+
     my $but;
     if (@but) {
         if (@but == 1 and ref $but[0] eq 'HASH') {
@@ -290,20 +292,22 @@ sub find_nearest_neighbor {
         }
     }
 
-    my $d2 = (defined $d ? $d * $d : 'inf');
-
-    my ($rix, $rd2) = _find_nearest_neighbor($vs, $t, $v, $d2, undef, $but);
+    my ($rix, $rd2) = _find_nearest_vector($vs, $t, $v, $d2, undef, $but);
     $rix // return;
     wantarray ? ($rix, sqrt($rd2)) : $rix;
 }
 
-sub find_nearest_neighbor_internal {
+*find_nearest_neighbor = \&find_nearest_vector; # for backwards compatibility
+
+sub find_nearest_vector_internal {
     my ($self, $ix, $d) = @_;
     $ix >= 0 or croak "index out of range";
-    $self->find_nearest_neighbor($self->{vs}[$ix], $d, $ix);
+    $self->find_nearest_vector($self->{vs}[$ix], $d, $ix);
 }
 
-sub _find_nearest_neighbor {
+*find_nearest_neighbor_internal = \&find_nearest_vector_internal; # for backwards compatibility
+
+sub _find_nearest_vector {
     my ($vs, $t, $v, $best_d2, $best_ix, $but) = @_;
 
     my @queue;
@@ -345,7 +349,7 @@ sub _find_nearest_neighbor {
     }
 }
 
-sub find_nearest_neighbor_all_internal {
+sub find_nearest_vector_all_internal {
     my ($self, $d) = @_;
     my $vs = $self->{vs};
     return unless @$vs > 1;
@@ -353,16 +357,18 @@ sub find_nearest_neighbor_all_internal {
 
     my @best = ((undef) x @$vs);
     my @d2   = (($d2)   x @$vs);
-    _find_nearest_neighbor_all_internal($vs, $self->{tree}, \@best, \@d2);
+    _find_nearest_vector_all_internal($vs, $self->{tree}, \@best, \@d2);
     return @best;
 }
 
-sub _find_nearest_neighbor_all_internal {
+*find_nearest_neighbor_all_internal = \&find_nearest_vector_all_internal; # for backwards compatibility
+
+sub _find_nearest_vector_all_internal {
     my ($vs, $t, $bests, $d2s) = @_;
     if (defined (my $axis = $t->[_axis])) {
         my @all_leafs;
         for my $side (0, 1) {
-            my @leafs = _find_nearest_neighbor_all_internal($vs, $t->[_s0 + $side], $bests, $d2s);
+            my @leafs = _find_nearest_vector_all_internal($vs, $t->[_s0 + $side], $bests, $d2s);
             my $other = $t->[_s1 - $side];
             my ($c0, $c1) = @{$other}[_c0, _c1];
             for my $leaf (@leafs) {
@@ -370,7 +376,7 @@ sub _find_nearest_neighbor_all_internal {
                     my $v = $vs->[$ix];
                     if ($v->dist2_to_box($c0, $c1) < $d2s->[$ix]) {
                         ($bests->[$ix], $d2s->[$ix]) =
-                            _find_nearest_neighbor($vs, $other, $v, $d2s->[$ix], $bests->[$ix]);
+                            _find_nearest_vector($vs, $other, $v, $d2s->[$ix], $bests->[$ix]);
                     }
                 }
             }
@@ -517,9 +523,9 @@ Math::Vector::Real::kdTree - kd-Tree implementation on top of Math::Vector::Real
 
   my $tree = Math::Vector::Real::kdTree->new(@v);
 
-  my $ix = $tree->find_nearest_neighbor(V(0, 0, 0, 0));
+  my $ix = $tree->find_nearest_vector(V(0, 0, 0, 0));
 
-  say "nearest neighbor is $ix, $v[$ix]";
+  say "nearest vector is $ix, $v[$ix]";
 
 =head1 DESCRIPTION
 
@@ -559,11 +565,11 @@ Returns the point at the given index inside the tree.
 Moves the point at index C<$ix> to the new given position readjusting
 the tree structure accordingly.
 
-=item ($ix, $d) = $t->find_nearest_neighbor($p, $max_d, @but_ix)
+=item ($ix, $d) = $t->find_nearest_vector($p, $max_d, @but_ix)
 
-=item ($ix, $d) = $t->find_nearest_neighbor($p, $max_d, \%but_ix)
+=item ($ix, $d) = $t->find_nearest_vector($p, $max_d, \%but_ix)
 
-Find the nearest neighbor for the given point C<$p> and returns its
+Find the nearest vector for the given point C<$p> and returns its
 index and the distance between the two points (in scalar context the
 index is returned).
 
@@ -573,14 +579,15 @@ Optionally, a list of point indexes to be excluded from the search can be
 passed or, alternatively, a reference to a hash containing the indexes
 of the points to be excluded.
 
-=item @ix = $t->find_nearest_neighbor_all_internal
+=item @ix = $t->find_nearest_vector_all_internal
 
-Returns the index of the nearest neighbor for every point inside the tree.
+Returns the index of the nearest vector from the tree.
 
-It is equivalent to (though, internally, it uses a better algorithm):
+It is equivalent to the following code (though, it uses a better
+algorithm):
 
   @ix = map {
-            scalar $t->nearest_neighbor($t->at($_), undef, $_)
+            scalar $t->nearest_vector($t->at($_), undef, $_)
         } 0..($t->size - 1);
 
 =item @ix = $t->find_in_ball($z, $d, $but)

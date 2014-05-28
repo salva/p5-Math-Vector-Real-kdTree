@@ -1,6 +1,9 @@
 Revision history for Perl extension Math::Vector::Real::kdTree.
 
 0.10    
+        - rename find_nearest_neighbor* methods to
+          find_nearest_vector* (though, the old names are keep in
+          order to preserve backward compatibility)
         - most methods have been rewritten from scratch using better
           algorithms and removing recursion when possible
         - change internal data structure
