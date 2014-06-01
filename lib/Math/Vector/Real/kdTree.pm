@@ -522,7 +522,9 @@ sub k_means_start {
 sub _k_means_start {
     my ($vs, $t, $n_req) = @_;
     if ($n_req <= 1) {
-        return ($n_req ? $t->[_sum] / $t->[_n] : ());
+        return if $n_req < 1;
+        # print STDERR "returning centroid\n";
+        return $t->[_sum] / $t->[_n];
     }
     else {
         my $n = $t->[_n];
@@ -540,8 +542,10 @@ sub _k_means_start {
             my @out;
             for (0..$#$ixs) {
                 push @out, $vs->[$ixs->[$_]]
-                    if rand($n_req - @out) <= ($n - $_);
+                    if rand($n - $_) < ($n_req - @out);
             }
+            # print STDERR "asked for $n_req elements, returning ".scalar(@out)."\n";
+
             return @out;
         }
     }
