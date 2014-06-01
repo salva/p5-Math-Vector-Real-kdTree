@@ -3,11 +3,12 @@
 use strict;
 use warnings;
 
-use Test::More tests => 7017;
+use Test::More tests => 14449;
 
 use_ok('Math::Vector::Real::kdTree');
 
 use Math::Vector::Real;
+use Math::Vector::Real::Test qw(eq_vector);
 
 sub nearest_vectors_bruteforce {
     my ($bottom, $top) = Math::Vector::Real->box(@_);
@@ -61,21 +62,43 @@ sub farthest_vectors_bruteforce {
 }
 
 sub test_neighbors {
-    my ($o, $n1, $n2, $msg) = @_;
+    unshift @_, $_[0];
+    goto &test_neighbors_indirect;
+}
+
+sub test_neighbors_indirect {
+    my ($o1, $o2, $n1, $n2, $msg) = @_;
     my (@d1, @d2);
-    for my $ix (0..$#$o) {
-        my $eo   = $o->[$ix];
+    for my $ix (0..$#$o1) {
+        my $eo   = $o1->[$ix];
         my $ixn1 = $n1->[$ix];
+        defined $ixn1 or do {
+            fail("expected index for element $ix is undefined");
+            goto break_me;
+        };
         my $ixn2 = $n2->[$ix];
-        my $en1  = $o->[$ixn1];
-        my $en2  = $o->[$ixn2];
+        defined $ixn2 or do {
+            fail("template index for element $ix is undefined");
+            goto break_me;
+        };
+        $ixn1 < @$o2 or do {
+            fail("expected index $ixn1 out of range");
+            goto break_me;
+        };
+        $ixn2 < @$o2 or do {
+            fail("template index $ixn1 out of range");
+            goto break_me;
+        };
+        my $en1 = $o2->[$ixn1];
+        my $en2  = $o2->[$ixn2];
         push @d1, $eo->dist2($en1);
         push @d2, $eo->dist2($en2);
     }
-    is "@d1", "@d2", $msg
-        or do {
-            diag "break me!";
-        };
+    is "@d1", "@d2", $msg and return 1;
+
+ break_me:
+    diag "break me!";
+    0;
 }
 
 my %gen = ( num => sub { rand },
@@ -122,6 +145,41 @@ for my $g (keys %gen) {
             @n = map scalar($t->find_farthest_vector_internal($_)), 0..$#o;
             test_neighbors(\@o, \@n, \@fbf, "find_farthest_vector_internal - insert - $id");
             is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after find_farthest_vector_internal - $id");
+
+            my $k;
+            for ($k = 1; $k < @n; $k *= 2) {
+                my @kms = $t->k_means_start($k);
+                is (scalar(@kms), $k, "k_means_start generates $k results - $id");
+                my @km = $t->k_means_loop(@kms);
+                is (scalar(@km), $k, "k_means_loop generates $k results - $id")
+                    or do {
+                        diag "break me 2";
+                    };
+                my @kma = $t->k_means_assign(@km);
+                my $t1 = Math::Vector::Real::kdTree->new(@km);
+                my @n = map scalar($t1->find_nearest_vector($_)), @o;
+                test_neighbors_indirect(\@o, \@km, \@kma, \@n, "k-means assign - k: $k, $id");
+
+                my @sum = map V((0) x $d), 1..$k;
+                my @count = ((0) x $k);
+
+                for my $ix (0..$#kma) {
+                    my $cluster = $kma[$ix];
+                    $count[$cluster]++;
+                    $sum[$cluster] += $o[$ix];
+                }
+                for my $cluster (0..$#sum) {
+                    if ($count[$cluster]) {
+                        $sum[$cluster] /= $count[$cluster];
+                    }
+                    else {
+                        $sum[$cluster] = $km[$cluster];
+                    }
+
+                    eq_vector($sum[$cluster], $km[$cluster], "cluster centroid - $cluster - k: $k, $id");
+                }
+            }
+
         }
     }
 }
