@@ -3,24 +3,24 @@
 use strict;
 use warnings;
 
-use Test::More tests => 6937;
+use Test::More tests => 7017;
 
 use_ok('Math::Vector::Real::kdTree');
 
 use Math::Vector::Real;
 
-sub neighbors_bruteforce {
+sub nearest_vectors_bruteforce {
     my ($bottom, $top) = Math::Vector::Real->box(@_);
     my $box = $top - $bottom;
     my $v = [map $_ - $bottom, @_];
     my $ixs = [0..$#_];
     my $dist2 = [($box->abs2 * 10 + 1) x @_];
     my $neighbors = [(undef) x @_];
-    _neighbors_bruteforce($v, $ixs, $dist2, $neighbors, $box, 0);
+    _nearest_vectors_bruteforce($v, $ixs, $dist2, $neighbors, $box, 0);
     return @$neighbors;
 }
 
-sub _neighbors_bruteforce {
+sub _nearest_vectors_bruteforce {
     my ($v, $ixs, $dist2, $neighbors) = @_;
     my $ixix = 0;
     for my $i (@$ixs) {
@@ -38,6 +38,26 @@ sub _neighbors_bruteforce {
             }
         }
     }
+}
+
+sub farthest_vectors_bruteforce {
+    my @best_ix;
+    my @best_d2 = ((0) x @_);
+    for my $i (1..$#_) {
+        my $v = $_[$i];
+        for my $j (0..$i - 1) {
+            my $d2 = Math::Vector::Real::dist2($v, $_[$j]);
+            if ($d2 > $best_d2[$i]) {
+                $best_d2[$i] = $d2;
+                $best_ix[$i] = $j;
+            }
+            if ($d2 > $best_d2[$j]) {
+                $best_d2[$j] = $d2;
+                $best_ix[$j] = $i;
+            }
+        }
+    }
+    return @best_ix;
 }
 
 sub test_neighbors {
@@ -68,19 +88,19 @@ for my $g (keys %gen) {
         for my $n (2, 10, 50, 250, 500) {
             my $id = "gen: $g, d: $d, n: $n";
             my @o = map V(map $gen{$g}->(), 1..$d), 1..$n;
-            my @nbf = neighbors_bruteforce(@o);
+            my @nbf = nearest_vectors_bruteforce(@o);
 
             my $t = Math::Vector::Real::kdTree->new(@o);
 
-            my @n = map scalar($t->find_nearest_neighbor_internal($_)), 0..$#o;
-            is ($#n, $#o, "count find_nearest_neighbor_internal - build - $id");
-            test_neighbors(\@o, \@n, \@nbf, "find_nearest_neighbor_internal - build - $id");
-            is_deeply([map $t->at($_), 0..$#o], \@o , "at - build - after find_nearest_neighbor_internal - $id");
+            my @n = map scalar($t->find_nearest_vector_internal($_)), 0..$#o;
+            is ($#n, $#o, "count find_nearest_vector_internal - build - $id");
+            test_neighbors(\@o, \@n, \@nbf, "find_nearest_vector_internal - build - $id");
+            is_deeply([map $t->at($_), 0..$#o], \@o , "at - build - after find_nearest_vector_internal - $id");
 
-            @n = $t->find_nearest_neighbor_all_internal;
-            is ($#n, $#o, "count find_nearest_neighbor_all_internal - build - $id");
-            test_neighbors(\@o, \@n, \@nbf, "find_nearest_neighbor_all_internal - build - $id");
-            is_deeply([map $t->at($_), 0..$#o], \@o , "at - build - after find_nearest_neighbor_all_internal - $id");
+            @n = $t->find_nearest_vector_all_internal;
+            is ($#n, $#o, "count find_nearest_vector_all_internal - build - $id");
+            test_neighbors(\@o, \@n, \@nbf, "find_nearest_vector_all_internal - build - $id");
+            is_deeply([map $t->at($_), 0..$#o], \@o , "at - build - after find_nearest_vector_all_internal - $id");
 
             $t = Math::Vector::Real::kdTree->new;
             for my $ix (0..$#o) {
@@ -90,13 +110,18 @@ for my $g (keys %gen) {
             }
             is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after insert - $id");
 
-            @n = map scalar($t->find_nearest_neighbor_internal($_)), 0..$#o;
-            test_neighbors(\@o, \@n, \@nbf, "find_nearest_neighbor_internal - insert - $id");
-            is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after find_nearest_neighbor_internal - $id");
+            @n = map scalar($t->find_nearest_vector_internal($_)), 0..$#o;
+            test_neighbors(\@o, \@n, \@nbf, "find_nearest_vector_internal - insert - $id");
+            is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after find_nearest_vector_internal - $id");
 
-            @n = $t->find_nearest_neighbor_all_internal;
-            test_neighbors(\@o, \@n, \@nbf, "find_nearest_neighbor_all_internal - insert - $id");
-            is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after find_nearest_neighbor_all_internal - $id");
+            @n = $t->find_nearest_vector_all_internal;
+            test_neighbors(\@o, \@n, \@nbf, "find_nearest_vector_all_internal - insert - $id");
+            is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after find_nearest_vector_all_internal - $id");
+
+            my @fbf = farthest_vectors_bruteforce(@o);
+            @n = map scalar($t->find_farthest_vector_internal($_)), 0..$#o;
+            test_neighbors(\@o, \@n, \@fbf, "find_farthest_vector_internal - insert - $id");
+            is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after find_farthest_vector_internal - $id");
         }
     }
 }
