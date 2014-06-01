@@ -73,20 +73,24 @@ sub test_neighbors_indirect {
         my $eo   = $o1->[$ix];
         my $ixn1 = $n1->[$ix];
         defined $ixn1 or do {
-            fail("expected index for element $ix is undefined");
+            fail($msg);
+            diag("expected index for element $ix is undefined");
             goto break_me;
         };
         my $ixn2 = $n2->[$ix];
         defined $ixn2 or do {
-            fail("template index for element $ix is undefined");
+            fail($msg);
+            diag("template index for element $ix is undefined");
             goto break_me;
         };
         $ixn1 < @$o2 or do {
-            fail("expected index $ixn1 out of range");
+            fail($msg);
+            diag("expected index $ixn1 out of range");
             goto break_me;
         };
         $ixn2 < @$o2 or do {
-            fail("template index $ixn1 out of range");
+            fail($msg);
+            diag("template index $ixn1 out of range");
             goto break_me;
         };
         my $en1 = $o2->[$ixn1];

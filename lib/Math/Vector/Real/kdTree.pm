@@ -922,7 +922,9 @@ The module can be used to calculate the k-means of a set of vectors as follows:
 
 =head1 SEE ALSO
 
-L<http://en.wikipedia.org/wiki/K-d_tree>
+L<Wikipedia k-d Tree entry|http://en.wikipedia.org/wiki/K-d_tree>.
+
+L<K-means filtering algorithm|https://www.cs.umd.edu/~mount/Projects/KMeans/pami02.pdf>.
 
 L<Math::Vector::Real>
 
