@@ -511,15 +511,40 @@ sub _find_farthest_vector {
     }
 }
 
-sub k_means_start {
+sub find_random_vector {
+    my $self = shift;
+    my $t = $self->{tree} or return;
+    my $vs = $self->{vs};
+    my $hidden = $self->{hidden};
+    if (not $hidden or @$vs > 20 * keys(%$hidden)) {
+        # pick directly when the hidden elements are less than 5% of the total
+        while (1) {
+            my $ix = int rand @$vs;
+            return $ix unless $hidden and $hidden->{$ix};
+        }
+    }
+    _find_random_vector($vs, $t);
+}
+
+sub _find_random_vector {
+    my ($vs, $t) = @_;
+    while (defined $t->[_axis]) {
+        $t = $t->[rand($t->[_n]) < $t->[_s0][_n] ? _s0 : _s1];
+    }
+    $t->[_ixs][rand $t->[_n]]
+}
+
+sub k_means_seed {
     my ($self, $n_req) = @_;
     $n_req = int($n_req) or return;
     my $t = $self->{tree} or return;
     my $vs = $self->{vs};
-    _k_means_start($vs, $t, $n_req);
+    _k_means_seed($vs, $t, $n_req);
 }
 
-sub _k_means_start {
+*k_means_start = \&k_means_seed;
+
+sub _k_means_seed {
     my ($vs, $t, $n_req) = @_;
     if ($n_req <= 1) {
         return if $n_req < 1;
@@ -534,8 +559,8 @@ sub _k_means_start {
             my $n1 = $s1->[_n];
             my $n0_req = int(0.5 + $n_req * ($n0 / $n));
             $n0_req = $n0 if $n0_req > $n0;
-            return (_k_means_start($vs, $s0, $n0_req),
-                    _k_means_start($vs, $s1, $n_req - $n0_req));
+            return (_k_means_seed($vs, $s0, $n0_req),
+                    _k_means_seed($vs, $s1, $n_req - $n0_req));
         }
         else {
             my $ixs = $t->[_ixs];
@@ -549,6 +574,80 @@ sub _k_means_start {
             return @out;
         }
     }
+}
+
+sub k_means_seed_pp {
+    my ($self, $n_req, $err) = @_;
+    $n_req = int($n_req) or return;
+    $err ||= 0.5;
+    my $t = $self->{tree} or return;
+    my $vs = $self->{vs};
+    my @km = $self->find_random_vector;
+
+    while (@km < $n_req) {
+        my @players;
+        my $weight_acu = 0;
+        my @players_weight;
+        my @pole = $t;
+        my @pole_kms = \@km;
+        while (my $p = shift @pole) {
+            my $kms = shift @pole_kms;
+            my ($n, $c0, $c1) = @{$p}[_n, _c0, _c1];
+            my @d2 = map { $vs->[$_]->dist2_to_box($c0, $c1) } 0..$#$kms;
+            my $best = nkeyhead { $d2[$_] } 0..$#$kms;
+            my $min_d2 = $d2[$best];
+            my $max_d2 = $vs->[$kms->[$best]]->max_dist2_to_box($c0, $c1);
+
+            if ($max_d2 * $err < $min_d2) {
+                push @players, $p;
+                $weight_acu += $n * $min_d2;
+                push @players_weight, $weight_acu;
+            }
+            else {
+                if (defined $p->[_axis]) {
+                    push @pole, @{$p}[_s0, _s1];
+                    my @km =  @{$kms}[grep { $d2[$_] < $max_d2 } 0..$#$kms];
+                    push @pole_kms, \@km, \@km;
+                    # print STDERR "dividing [@$p], \@pole size is ".scalar(@pole)."\n";
+
+                }
+                else {
+                    my $ixs = $p->[_ixs];
+                    for my $ix (@$ixs) {
+                        my $v = $vs->[$ix];
+                        my $min_d2 = nkeyhead { $v->dist2($vs->[$_]) } @$kms;
+                        if ($min_d2 > 0) {
+                            # print STDERR "pushing into players ix: $ix, d2: $min_d2\n";
+                            push @players, $ix;
+                            $weight_acu += $min_d2;
+                            push @players_weight, $weight_acu;
+                        }
+                    }
+                }
+            }
+        }
+
+        # print STDERR "there are ".scalar(@players)." players\n";
+
+        $weight_acu or last; # too many seeds requested?
+
+        # use binary search to pick a weighted element
+        my $r = rand $weight_acu;
+        my $i = 0;
+        my $j = @players_weight;
+        while ($i < $j) {
+            my $pivot = int(0.5 * ($i + $j));
+            if ($players_weight[$pivot] < $r) {
+                $i = $pivot + 1;
+            }
+            else {
+                $j = $pivot;
+           }
+        }
+        my $player = $players[$i];
+        push @km, (ref $player ? _find_random_vector($vs, $player) : $player);
+    }
+    return @km;
 }
 
 sub k_means_loop {
@@ -854,7 +953,7 @@ for the farthest point.
 Given the index of a point on the tree this method returns the index
 of the farthest vector also from the tree.
 
-=item @k = $t->k_means_start($n)
+=item @k = $t->k_means_seed($n)
 
 This method uses the internal tree structure to generate a set of
 point that can be used as seeds for other C<k_means> methods.
@@ -907,7 +1006,7 @@ The module can be used to calculate the k-means of a set of vectors as follows:
   
   # k-mean calculation
   my $t = Math::Vector::Real::kdTree->new(@v);
-  my @means = $t->k_means_start($k);
+  my @means = $t->k_means_seed($k);
   @means = $t->k_means_loop(@means);
   @assign = $t->k_means_assign(@means);
   my @cluster = map [], 1..$k;

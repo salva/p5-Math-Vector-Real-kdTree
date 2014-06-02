@@ -154,8 +154,8 @@ for my $g (keys %gen) {
 
             my $k;
             for ($k = 1; $k < @n; $k *= 2) {
-                my @kms = $t->k_means_start($k);
-                is (scalar(@kms), $k, "k_means_start generates $k results - $id");
+                my @kms = $t->k_means_seed($k);
+                is (scalar(@kms), $k, "k_means_seed generates $k results - $id");
                 my @km = $t->k_means_loop(@kms);
                 is (scalar(@km), $k, "k_means_loop generates $k results - $id")
                     or do {
