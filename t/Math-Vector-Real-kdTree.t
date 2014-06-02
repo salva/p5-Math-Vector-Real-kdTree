@@ -43,7 +43,7 @@ sub _nearest_vectors_bruteforce {
 
 sub farthest_vectors_bruteforce {
     my @best_ix;
-    my @best_d2 = ((0) x @_);
+    my @best_d2 = ((-1) x @_);
     for my $i (1..$#_) {
         my $v = $_[$i];
         for my $j (0..$i - 1) {
@@ -108,11 +108,13 @@ sub test_neighbors_indirect {
 my %gen = ( num => sub { rand },
             int => sub { int rand(10) } );
 
+
 #srand 318275924;
 diag "srand: " . srand;
 for my $g (keys %gen) {
     for my $d (1, 2, 3, 10) {
         for my $n (2, 10, 50, 250, 500) {
+        # for my $n ((2) x 100) {
             my $id = "gen: $g, d: $d, n: $n";
             my @o = map V(map $gen{$g}->(), 1..$d), 1..$n;
             my @nbf = nearest_vectors_bruteforce(@o);
