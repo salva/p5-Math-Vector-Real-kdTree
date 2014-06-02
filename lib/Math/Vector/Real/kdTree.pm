@@ -447,7 +447,7 @@ sub find_farthest_vector {
     my ($self, $v, $d, @but) = @_;
     my $t = $self->{tree} or return;
     my $vs = $self->{vs};
-    my $d2 = ($d ? $d * $d : 0);
+    my $d2 = ($d ? $d * $d : -1);
     my $but;
     if (@but) {
         if (@but == 1 and ref $but[0] eq 'HASH') {
