@@ -9,6 +9,7 @@ use Carp;
 
 use Math::Vector::Real;
 use Sort::Key::Top qw(nkeypartref nhead ntail nkeyhead);
+use Hash::Util::FieldHash qw(idhash);
 
 our $max_per_pole = 12;
 our $recommended_per_pole = 6;
@@ -582,62 +583,90 @@ sub k_means_seed_pp {
     $err ||= 0.5;
     my $t = $self->{tree} or return;
     my $vs = $self->{vs};
-    my @km = $self->find_random_vector;
+    my $km = $self->find_random_vector;
 
-    while (@km < $n_req) {
+    my (@km, @d2);
+    idhash my %extra; # [$min_d2, $max_d2]
+
+    while (1) {
+        push @km, $km;
+        last unless @km < $n_req;
+
+        # update distances
+        my @queue = $t;
+        while (my $p = pop @queue) {
+            my $kmv = $vs->[$km];
+            my ($c0, $c1) = @{$p}[_c0, _c1];
+            my $extra = $extra{$p} //= ['inf', 'inf'];
+            my ($min_d2, $max_d2) = @$extra;
+            my $min_d2_to_box = $kmv->dist2_to_box($c0, $c1);
+            if ($max_d2 > $min_d2_to_box) {
+                if (defined $p->[_axis]) {
+                    push @queue, @{$p}[_s0, _s1];
+                }
+                else {
+                    for (@{$p->[_ixs]}) {
+                        my $d2 = $kmv->dist2($vs->[$_]);
+                        if ($d2 < ($d2[$_] //= $d2)) {
+                            $d2[$_] = $d2;
+                        }
+                    }
+                }
+
+                if ($min_d2_to_box < $min_d2) {
+                    $extra->[0] = $min_d2_to_box;
+                }
+
+                my $max_d2_to_box = $kmv->max_dist2_to_box($c0, $c1);
+                if ($max_d2_to_box < $max_d2) {
+                    $extra->[1] = $max_d2_to_box;
+                }
+            }
+        }
+
+        # find players
+        my $weight = 0;
         my @players;
-        my $weight_acu = 0;
-        my @players_weight;
-        my @pole = $t;
-        my @pole_kms = \@km;
-        while (my $p = shift @pole) {
-            my $kms = shift @pole_kms;
-            my ($n, $c0, $c1) = @{$p}[_n, _c0, _c1];
-            my @d2 = map { $vs->[$_]->dist2_to_box($c0, $c1) } 0..$#$kms;
-            my $best = nkeyhead { $d2[$_] } 0..$#$kms;
-            my $min_d2 = $d2[$best];
-            my $max_d2 = $vs->[$kms->[$best]]->max_dist2_to_box($c0, $c1);
+        my @weights;
+
+        @queue = $t;
+        while (my $p = pop @queue) {
+            my $extra = $extra{$p} or die "internal error: extra information missing for $p";
+            my ($min_d2, $max_d2) = @$extra;
 
             if ($max_d2 * $err < $min_d2) {
+                $weight += $p->[_n] * ($min_d2 + $max_d2) * 0.5;
+                push @weights, $weight;
                 push @players, $p;
-                $weight_acu += $n * $min_d2;
-                push @players_weight, $weight_acu;
             }
             else {
                 if (defined $p->[_axis]) {
-                    push @pole, @{$p}[_s0, _s1];
-                    my @km =  @{$kms}[grep { $d2[$_] < $max_d2 } 0..$#$kms];
-                    push @pole_kms, \@km, \@km;
-                    # print STDERR "dividing [@$p], \@pole size is ".scalar(@pole)."\n";
-
+                    push @queue, @{$p}[_s0, _s1];
                 }
                 else {
-                    my $ixs = $p->[_ixs];
-                    for my $ix (@$ixs) {
-                        my $v = $vs->[$ix];
-                        my $min_d2 = nkeyhead { $v->dist2($vs->[$_]) } @$kms;
-                        if ($min_d2 > 0) {
-                            # print STDERR "pushing into players ix: $ix, d2: $min_d2\n";
-                            push @players, $ix;
-                            $weight_acu += $min_d2;
-                            push @players_weight, $weight_acu;
+                    for (@{$p->[_ixs]}) {
+                        if (my $d2 = $d2[$_]) {
+                            $weight += $d2;
+                            push @weights, $weight;
+                            push @players, $_;
                         }
                     }
                 }
             }
         }
 
-        # print STDERR "there are ".scalar(@players)." players\n";
+        # to many k-means requested?
+        @players or last;
 
-        $weight_acu or last; # too many seeds requested?
+        # select a position on the weight queue:
+        my $dice = rand($weight);
 
-        # use binary search to pick a weighted element
-        my $r = rand $weight_acu;
+        # and use binary search to look for it:
         my $i = 0;
-        my $j = @players_weight;
+        my $j = @players;
         while ($i < $j) {
-            my $pivot = int(0.5 * ($i + $j));
-            if ($players_weight[$pivot] < $r) {
+            my $pivot = (($i + $j) >> 1);
+            if ($weights[$pivot] < $dice) {
                 $i = $pivot + 1;
             }
             else {
@@ -645,7 +674,7 @@ sub k_means_seed_pp {
            }
         }
         my $player = $players[$i];
-        push @km, (ref $player ? _find_random_vector($vs, $player) : $player);
+        $km = (ref $player ? _find_random_vector($vs, $player) : $player);
     }
     return @km;
 }
