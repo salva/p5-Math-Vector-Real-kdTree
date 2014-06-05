@@ -577,6 +577,35 @@ sub _k_means_seed {
     }
 }
 
+our $k_means_seed_pp_test;
+
+sub _k_means_seed_pp_test {
+    my ($self, $err, $kms, $players, $weights) = @_;
+    my @w;
+    my $last = 0;
+    for my $i (0..$#$players) {
+        my $p = $players->[$i];
+        my $w = $weights->[$i] - $last;
+        $last = $weights->[$i];
+
+        my @store;
+        if (ref $p) {
+            _push_all($p, \@store);
+        }
+        else {
+            @store = $p
+        }
+        if (@store) {
+            $w /= @store;
+            $w[$_] = $w for @store;
+        }
+    }
+    my $vs = $self->{vs};
+    $w[$_] //= 0 for 0..$#$vs;
+
+    $k_means_seed_pp_test->($self, $err, [map $self->{vs}[$_], @$kms], \@w);
+}
+
 sub k_means_seed_pp {
     my ($self, $n_req, $err) = @_;
     $n_req = int($n_req) or return;
@@ -624,10 +653,10 @@ sub k_means_seed_pp {
             }
         }
 
-        # find players
+        # find players and weight them
         my $weight = 0;
-        my @players;
-        my @weights;
+        my @player;
+        my @weight;
 
         @queue = $t;
         while (my $p = pop @queue) {
@@ -636,8 +665,8 @@ sub k_means_seed_pp {
 
             if ($max_d2 * $err < $min_d2) {
                 $weight += $p->[_n] * ($min_d2 + $max_d2) * 0.5;
-                push @weights, $weight;
-                push @players, $p;
+                push @weight, $weight;
+                push @player, $p;
             }
             else {
                 if (defined $p->[_axis]) {
@@ -647,36 +676,40 @@ sub k_means_seed_pp {
                     for (@{$p->[_ixs]}) {
                         if (my $d2 = $d2[$_]) {
                             $weight += $d2;
-                            push @weights, $weight;
-                            push @players, $_;
+                            push @weight, $weight;
+                            push @player, $_;
                         }
                     }
                 }
             }
         }
 
+        # in order to check the algorithm we have to tap it here
+        $k_means_seed_pp_test and @km > 1 and
+            $self->_k_means_seed_pp_test($err, \@km, \@player, \@weight);
+
         # to many k-means requested?
-        @players or last;
+        @player or last;
 
         # select a position on the weight queue:
         my $dice = rand($weight);
 
         # and use binary search to look for it:
         my $i = 0;
-        my $j = @players;
+        my $j = @player;
         while ($i < $j) {
             my $pivot = (($i + $j) >> 1);
-            if ($weights[$pivot] < $dice) {
+            if ($weight[$pivot] < $dice) {
                 $i = $pivot + 1;
             }
             else {
                 $j = $pivot;
            }
         }
-        my $player = $players[$i];
+        my $player = $player[$i];
         $km = (ref $player ? _find_random_vector($vs, $player) : $player);
     }
-    return @km;
+    return @{$vs}[@km];
 }
 
 sub k_means_loop {

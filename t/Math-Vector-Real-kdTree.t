@@ -3,10 +3,11 @@
 use strict;
 use warnings;
 
-use Test::More tests => 14449;
+use Test::More tests => 57414;
 
 use_ok('Math::Vector::Real::kdTree');
 
+use Sort::Key::Top qw(nhead);
 use Math::Vector::Real;
 use Math::Vector::Real::Test qw(eq_vector);
 
@@ -152,40 +153,72 @@ for my $g (keys %gen) {
             test_neighbors(\@o, \@n, \@fbf, "find_farthest_vector_internal - insert - $id");
             is_deeply([map $t->at($_), 0..$#o], \@o , "at - insert - after find_farthest_vector_internal - $id");
 
+            my %seed_errs = (k_means_seed => [1], k_means_seed_pp => [1, 0.9, 0.5]);
+
             my $k;
             for ($k = 1; $k < @n; $k *= 2) {
-                my @kms = $t->k_means_seed($k);
-                is (scalar(@kms), $k, "k_means_seed generates $k results - $id");
-                my @km = $t->k_means_loop(@kms);
-                is (scalar(@km), $k, "k_means_loop generates $k results - $id")
-                    or do {
-                        diag "break me 2";
-                    };
-                my @kma = $t->k_means_assign(@km);
-                my $t1 = Math::Vector::Real::kdTree->new(@km);
-                my @n = map scalar($t1->find_nearest_vector($_)), @o;
-                test_neighbors_indirect(\@o, \@km, \@kma, \@n, "k-means assign - k: $k, $id");
+                for my $seed_method (qw(k_means_seed k_means_seed_pp)) {
+                    for my $err (@{$seed_errs{$seed_method}}) {
+                        no warnings 'once';
+                        local $Math::Vector::Real::kdTree::k_means_seed_pp_test = sub {
+                            my ($t, $err, $kmvs, $ws) = @_;
+                            # use Data::Dumper;
+                            # diag Dumper $ws;
+                            # diag Dumper $kmvs;
+                            my @error;
+                            for my $ix (0..$#o) {
+                                my $w = nhead map { $o[$ix]->dist2($_) } @$kmvs;
+                                # diag "checking element $ix, o: $o[$ix] ws: $ws->[$ix], w: $w";
+                                if ($ws->[$ix] + 0.0001 < $w * $err or $ws->[$ix] * $err > $w + 0.0001) {
+                                    push @error, "weight calculation failed for ix $ix: precise: $w, estimated: $ws->[$ix], err: $err"
+                                }
+                            }
+                            ok(@error == 0, "k_means_seed_pp_test, k: $k, err: $err, $id");
+                            diag $_ for @error;
+                        };
 
-                my @sum = map V((0) x $d), 1..$k;
-                my @count = ((0) x $k);
+                        my @kms = $t->$seed_method($k, $err);
+                        my $k_gen = scalar(@kms);
+                        if ($seed_method eq 'k_means_seed') {
+                            is ($k_gen, $k, "$seed_method generates $k results - err: $err, $id");
+                        }
+                        else {
+                            ok(1, "keep number of tests unchanged") for $k_gen..$k-1;
+                            ok($k_gen >= 1,  "$seed_method generates at least one result");
+                            ok($k_gen <= $k, "$seed_method generates $k or less results");
+                        }
+                        my @km = $t->k_means_loop(@kms);
+                        is (scalar(@km), $k_gen, "k_means_loop generates $k_gen results - err: $err, $id")
+                            or do {
+                                diag "break me 2";
+                            };
+                        my @kma = $t->k_means_assign(@km);
+                        my $t1 = Math::Vector::Real::kdTree->new(@km);
+                        my @n = map scalar($t1->find_nearest_vector($_)), @o;
+                        test_neighbors_indirect(\@o, \@km, \@kma, \@n, "k_means_assign - err: $err, k: $k, $id");
 
-                for my $ix (0..$#kma) {
-                    my $cluster = $kma[$ix];
-                    $count[$cluster]++;
-                    $sum[$cluster] += $o[$ix];
-                }
-                for my $cluster (0..$#sum) {
-                    if ($count[$cluster]) {
-                        $sum[$cluster] /= $count[$cluster];
+                        my @sum = map V((0) x $d), 1..$k_gen;
+                        my @count = ((0) x $k_gen);
+
+                        for my $ix (0..$#kma) {
+                            my $cluster = $kma[$ix];
+                            $count[$cluster]++;
+                            $sum[$cluster] += $o[$ix];
+                        }
+                        for my $cluster (0..$#sum) {
+                            if ($count[$cluster]) {
+                                $sum[$cluster] /= $count[$cluster];
+                            }
+                            else {
+                                $sum[$cluster] = $km[$cluster];
+                            }
+
+                            eq_vector($sum[$cluster], $km[$cluster], "cluster centroid - $cluster - k: $k, $id");
+                        }
+                        ok (1, "keep number of tests unchanged") for $#sum..$k-1;
                     }
-                    else {
-                        $sum[$cluster] = $km[$cluster];
-                    }
-
-                    eq_vector($sum[$cluster], $km[$cluster], "cluster centroid - $cluster - k: $k, $id");
                 }
             }
-
         }
     }
 }
