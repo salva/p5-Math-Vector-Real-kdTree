@@ -11,6 +11,12 @@ use Sort::Key::Top qw(nhead);
 use Math::Vector::Real;
 use Math::Vector::Real::Test qw(eq_vector);
 
+sub find_in_ball_bruteforce {
+    my ($vs, $ix, $d) = @_;
+    my $d2 = $d * $d;
+    grep { $ix <=> $_ and $vs->[$ix]->dist2($vs->[$_]) <= $d2 } 0..$#$vs;
+}
+
 sub nearest_vectors_bruteforce {
     my ($bottom, $top) = Math::Vector::Real->box(@_);
     my $box = $top - $bottom;
@@ -218,6 +224,17 @@ for my $g (keys %gen) {
                         ok (1, "keep number of tests unchanged") for $#sum..$k-1;
                     }
                 }
+            }
+
+            for my $ix (0..$#o) {
+                my $r = 0.0001 + rand(1);
+                my @bix = sort { $a <=> $b } $t->find_in_ball($o[$ix], $r, $ix);
+                my @bixbf = find_in_ball_bruteforce(\@o, $ix, $r);
+
+                is_deeply (\@bix, \@bixbf, "find_in_ball - $ix - $id") or
+                    do {;
+                        diag "break me 3";
+                    }
             }
         }
     }

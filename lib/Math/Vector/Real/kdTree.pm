@@ -408,6 +408,9 @@ sub _find_nearest_vector_all_internal {
 
 sub find_in_ball {
     my ($self, $z, $d, $but) = @_;
+    if (defined $but and ref $but ne 'HASH') {
+        $but = { $but => 1 };
+    }
     _find_in_ball($self->{vs}, $self->{tree}, $z, $d * $d, $but);
 }
 
@@ -433,13 +436,16 @@ sub _find_in_ball {
                         ? grep { !$but->{$_} and $vs->[$_]->dist2($z) <= $d2 } @$ixs
                         : grep { $vs->[$_]->dist2($z) <= $d2 } @$ixs );
             }
-        }
 
-        $t = pop @queue or last;
+            $t = pop @queue or last;
+        }
     }
 
     if (wantarray) {
-        return ($but ? grep !$but->{$_}, @r : @r);
+        if ($but) {
+            return grep !$but->{$_}, @r;
+        }
+        return @r;
     }
     return $r;
 }
@@ -617,12 +623,18 @@ sub k_means_seed_pp {
     my (@km, @d2);
     idhash my %extra; # [$min_d2, $max_d2]
 
+    # my (@player, @weight, @queue);
+    # $#player = @$vs; # preallocate memory
+
+    my (@weight, @queue);
+    $#weight = @$vs; # preallocate memory
+
     while (1) {
         push @km, $km;
         last unless @km < $n_req;
 
         # update distances
-        my @queue = $t;
+        @queue = $t;
         while (my $p = pop @queue) {
             my $kmv = $vs->[$km];
             my ($c0, $c1) = @{$p}[_c0, _c1];
@@ -655,48 +667,53 @@ sub k_means_seed_pp {
 
         # find players and weight them
         my $weight = 0;
-        my @player;
-        my @weight;
+        # @player = ();
+        @weight = ();
 
-        @queue = $t;
-        while (my $p = pop @queue) {
-            my $extra = $extra{$p} or die "internal error: extra information missing for $p";
-            my ($min_d2, $max_d2) = @$extra;
+        # @queue = $t;
+        # while (my $p = pop @queue) {
+        #     my $extra = $extra{$p} or die "internal error: extra information missing for $p";
+        #     my ($min_d2, $max_d2) = @$extra;
 
-            if ($max_d2 * $err < $min_d2) {
-                $weight += $p->[_n] * ($min_d2 + $max_d2) * 0.5;
-                push @weight, $weight;
-                push @player, $p;
-            }
-            else {
-                if (defined $p->[_axis]) {
-                    push @queue, @{$p}[_s0, _s1];
-                }
-                else {
-                    for (@{$p->[_ixs]}) {
-                        if (my $d2 = $d2[$_]) {
-                            $weight += $d2;
-                            push @weight, $weight;
-                            push @player, $_;
-                        }
-                    }
-                }
-            }
+        #     if ($max_d2 * $err < $min_d2) {
+        #         $weight += $p->[_n] * ($min_d2 + $max_d2) * 0.5;
+        #         push @weight, $weight;
+        #         push @player, $p;
+        #     }
+        #     else {
+        #         if (defined $p->[_axis]) {
+        #             push @queue, @{$p}[_s0, _s1];
+        #         }
+        #         else {
+        #             for (@{$p->[_ixs]}) {
+        #                 if (my $d2 = $d2[$_]) {
+        #                     $weight += $d2;
+        #                     push @weight, $weight;
+        #                     push @player, $_;
+        #                 }
+        #             }
+        #         }
+        #     }
+        # }
+
+        for my $ix (0..@$vs) {
+            $weight += $d2[$ix] // 0;
+            $weight[$ix] += $weight;
         }
 
         # in order to check the algorithm we have to tap it here
-        $k_means_seed_pp_test and @km > 1 and
-            $self->_k_means_seed_pp_test($err, \@km, \@player, \@weight);
+        # $k_means_seed_pp_test and @km > 1 and
+        #    $self->_k_means_seed_pp_test($err, \@km, \@player, \@weight);
 
         # to many k-means requested?
-        @player or last;
+        # @player or last;
 
         # select a position on the weight queue:
         my $dice = rand($weight);
 
         # and use binary search to look for it:
         my $i = 0;
-        my $j = @player;
+        my $j = @weight;
         while ($i < $j) {
             my $pivot = (($i + $j) >> 1);
             if ($weight[$pivot] < $dice) {
@@ -706,8 +723,9 @@ sub k_means_seed_pp {
                 $j = $pivot;
            }
         }
-        my $player = $player[$i];
-        $km = (ref $player ? _find_random_vector($vs, $player) : $player);
+        #my $player = $player[$i];
+        #$km = (ref $player ? _find_random_vector($vs, $player) : $player);
+        $km = $i;
     }
     return @{$vs}[@km];
 }
