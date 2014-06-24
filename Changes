@@ -1,10 +1,11 @@
 Revision history for Perl extension Math::Vector::Real::kdTree.
 
 0.12
+        - find_in_ball was broken
         - rename k_means_start to k_means_seed
 
 0.11  Jun 2, 2014
-        - find_furthest_vector was failing for the case where all the
+        - find_farthest_vector was failing for the case where all the
           vectors on the tree were equal
 
 0.10  Jun 1, 2014
