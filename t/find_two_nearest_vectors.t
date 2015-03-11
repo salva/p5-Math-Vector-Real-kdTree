@@ -3,7 +3,7 @@
 use strict;
 use warnings;
 
-use Test::More tests => 253;
+use Test::More tests => 379;
 
 use_ok('Math::Vector::Real::kdTree');
 
@@ -27,8 +27,9 @@ sub find_two_nearest_vectors_bruteforce {
     (@best_ix, sqrt($best_d2))
 }
 
-my %gen = ( num => sub { rand },
-            int => sub { int rand(10) } );
+my %gen = ( num => sub { V(map rand, 1..$_[0]) },
+            int => sub { V(map int(rand 10), 1..$_[0]) },
+            dia => sub { V((rand) x $_[0]) } );
 
 #srand 318275924;
 diag "srand: " . srand;
@@ -36,7 +37,7 @@ for my $g (keys %gen) {
     for my $d (1, 2, 3, 4, 5, 6, 10) {
         for my $n (2, 5, 10, 20, 40, 50, 60, 70, 80, 90, 100, 120, 150, 180, 200, 250, 500, 1000) {
             my $id = "gen: $g, d: $d, n: $n";
-            my @o = map V(map $gen{$g}->(), 1..$d), 1..$n;
+            my @o = map $gen{$g}->($d), 1..$n;
             my $t = Math::Vector::Real::kdTree->new(@o);
             my ($b1, $b2, $min_d2) = $t->find_two_nearest_vectors;
             my ($b1bf, $b2bf, $min_d2_bf) = find_two_nearest_vectors_bruteforce(@o);
