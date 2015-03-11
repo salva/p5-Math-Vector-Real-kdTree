@@ -1,6 +1,6 @@
 package Math::Vector::Real::kdTree;
 
-our $VERSION = '0.11';
+our $VERSION = '0.12';
 
 use 5.010;
 use strict;
@@ -404,6 +404,98 @@ sub _find_nearest_vector_all_internal {
         }
         return $t;
     }
+}
+
+sub find_two_nearest_vectors {
+    my $self = shift;
+    my $t = $self->{tree} or return;
+    my $vs = $self->{vs};
+    my $d2 = 'inf' + 0;
+    my ($rix0, $rix1, $rd2) = _find_two_nearest_vectors($vs, $t, $d2);
+    $rix0 or return;
+    wantarray ? ($rix0, $rix1, sqrt($rd2)) : sqrt($rd2)
+}
+
+sub _pole_id {
+    my ($id, $deep) = __pole_id(@_);
+    "$id/$deep";
+}
+
+sub __pole_id {
+    my ($vs, $t) = @_;
+    if (defined $t->[_axis]) {
+        my ($id, $deep) = __pole_id($vs, $t->[_s0]);
+        return ($id, $deep+1);
+    }
+    return ($t->[_ixs][0], 0)
+}
+
+sub _find_two_nearest_vectors {
+    my ($vs, $t, $best_d2) = @_;
+
+    my @best_ixs = (undef, undef);
+
+    my @queue_t1 = $t;
+    my @queue_t2 = undef;
+    my @queue_d2 = undef;
+
+    while (@queue_t1) {
+        my $t1 = pop @queue_t1;
+        my $t2 = pop @queue_t2;
+        my $d2 = pop @queue_d2;
+        if ($t2) {
+            if ($d2 < $best_d2) {
+                unless (defined $t1->[_axis]) {
+                    unless (defined $t2->[_axis]) {
+                        for my $ix1 (@{$t1->[_ixs]}) {
+                            my $v1 = $vs->[$ix1];
+                            for my $ix2 (@{$t2->[_ixs]}) {
+                                my $d2 = Math::Vector::Real::dist2($v1, $vs->[$ix2]);
+                                if ($d2 < $best_d2) {
+                                    $best_d2 = $d2;
+                                    @best_ixs = ($ix1, $ix2);
+                                }
+                            }
+                        }
+                        next;
+                    }
+                    ($t1, $t2) = ($t2, $t1);
+                }
+                for my $s (@{$t1}[_s0, _s1]) {
+                    my $d2 = Math::Vector::Real->dist2_between_boxes(@{$s}[_c0, _c1], @{$t2}[_c0, _c1]);
+                    if ($d2 < $best_d2) {
+                        unshift @queue_t1, $t2;
+                        unshift @queue_t2, $s;
+                        unshift @queue_d2, $d2;
+                    }
+                }
+            }
+        }
+        else {
+            if (defined $t1->[_axis]) {
+                my ($s0, $s1) = @{$t1}[_s0, _s1];
+                push @queue_t1, $s0, $s0, $s1;
+                push @queue_t2, $s1, undef, undef;
+                push @queue_d2, 0, 0, 0;
+            }
+            else {
+                my $ixs = $t1->[_ixs];
+                for my $i (1 .. $#$ixs) {
+                    my $ix1 = $ixs->[$i];
+                    my $v1 = $vs->[$ix1];
+                    for my $j (0 .. $i - 1) {
+                        my $ix2 = $ixs->[$j];
+                        my $d2 = Math::Vector::Real::dist2($v1, $vs->[$ix2]);
+                        if ($d2 < $best_d2) {
+                            $best_d2 = $d2;
+                            @best_ixs = ($ix1, $ix2);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (@best_ixs, $best_d2)
 }
 
 sub find_in_ball {
@@ -892,22 +984,30 @@ sub _ordered_by_proximity {
 sub _dump_to_string {
     my ($vs, $t, $indent, $opts) = @_;
     my ($n, $c0, $c1, $sum) = @{$t}[_n, _c0, _c1, _sum];
+    my $id = ($opts->{pole_id} ? _pole_id($vs, $t)." " : '');
     if (defined (my $axis = $t->[_axis])) {
         my ($s0, $s1, $cut) = @{$t}[_s0, _s1, _cut];
-        return ( "${indent}n: $n, c0: $c0, c1: $c1, sum: $sum, axis: $axis, cut: $cut\n" .
+        return ( "${indent}${id}n: $n, c0: $c0, c1: $c1, sum: $sum, axis: $axis, cut: $cut\n" .
                  _dump_to_string($vs, $s0, "$indent$opts->{tab}", $opts) .
                  _dump_to_string($vs, $s1, "$indent$opts->{tab}", $opts) );
     }
     else {
-        my $o = ( "${indent}n: $n, c0: $c0, c1: $c1, sum: $sum\n" .
+        my $remark = $opts->{remark} // [];
+        my $o = ( "${indent}${id}n: $n, c0: $c0, c1: $c1, sum: $sum\n" .
                   "${indent}$opts->{tab}ixs: [" );
-        if ($opts->{dump_vectors} // 1) {
-            $o .= join(", ", map "$_ $vs->[$_]", @{$t->[_ixs]});
+        my @str;
+        for my $ix (@{$t->[_ixs]}) {
+            my $colored_ix = (@$remark and grep($ix == $_, @$remark)
+                              ? Term::ANSIColor::colored($ix, 'red')
+                              : $ix);
+            if ($opts->{dump_vectors} // 1) {
+                push @str, "$colored_ix $vs->[$ix]";
+            }
+            else {
+                push @str, $colored_ix;
+            }
         }
-        else {
-            $o .= join(", ", @{$t->[_ixs]});
-        }
-        return $o . "]\n";
+        return $o . join(', ', @str) . "]\n";
     }
 }
 
@@ -919,6 +1019,7 @@ sub dump_to_string {
     my $hidden = join ", ", keys %{$self->{hidden} || {}};
     my $o = "tree: n: $nvs, hidden: {$hidden}\n";
     if (my $t = $self->{tree}) {
+        require Term::ANSIColor if $opts{remark};
         return $o . _dump_to_string($vs, $t, $tab, \%opts);
     }
     else {
@@ -1033,6 +1134,14 @@ for the farthest point.
 Given the index of a point on the tree this method returns the index
 of the farthest vector also from the tree.
 
+=item ($ix0, $ix1, $d) = $t->find_two_nearest_vectors
+
+This method returns the indexes of two vectors from the three such
+that the distance between them is minimal. The distance is returned as
+the third output value.
+
+In scalar context, just the distance is returned.
+
 =item @k = $t->k_means_seed($n)
 
 This method uses the internal tree structure to generate a set of
@@ -1109,7 +1218,7 @@ L<Math::Vector::Real>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2011-2014 by Salvador FandiE<ntilde>o E<lt>sfandino@yahoo.comE<gt>
+Copyright (C) 2011-2015 by Salvador FandiE<ntilde>o E<lt>sfandino@yahoo.comE<gt>
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.12.3 or,

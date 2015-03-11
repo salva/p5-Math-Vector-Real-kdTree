@@ -1,6 +1,8 @@
 Revision history for Perl extension Math::Vector::Real::kdTree.
 
-0.12
+0.12  Mar 11, 2015
+        - add method find_two_nearest_vectors
+        - dump_to_string now supports the options remark and pole_id
         - find_in_ball was broken
         - rename k_means_start to k_means_seed
 
