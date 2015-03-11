@@ -411,9 +411,10 @@ sub find_two_nearest_vectors {
     my $t = $self->{tree} or return;
     my $vs = $self->{vs};
     my $d2 = 'inf' + 0;
-    my ($rix0, $rix1, $rd2) = _find_two_nearest_vectors($vs, $t, $d2);
-    $rix0 or return;
-    wantarray ? ($rix0, $rix1, sqrt($rd2)) : sqrt($rd2)
+    if (my ($rix0, $rix1, $rd2) = _find_two_nearest_vectors($vs, $t, $d2)) {
+        return wantarray ? ($rix0, $rix1, sqrt($rd2)) : sqrt($rd2)
+    }
+    ()
 }
 
 sub _pole_id {
