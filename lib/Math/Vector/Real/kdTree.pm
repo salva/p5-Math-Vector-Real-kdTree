@@ -410,8 +410,7 @@ sub find_two_nearest_vectors {
     my $self = shift;
     my $t = $self->{tree} or return;
     my $vs = $self->{vs};
-    my $d2 = 'inf' + 0;
-    if (my ($rix0, $rix1, $rd2) = _find_two_nearest_vectors($vs, $t, $d2)) {
+    if (my ($rix0, $rix1, $rd2) = _find_two_nearest_vectors($vs, $t)) {
         return wantarray ? ($rix0, $rix1, sqrt($rd2)) : sqrt($rd2)
     }
     ()
@@ -432,66 +431,74 @@ sub __pole_id {
 }
 
 sub _find_two_nearest_vectors {
-    my ($vs, $t, $best_d2) = @_;
+    my ($vs, $t) = @_;
 
     my @best_ixs = (undef, undef);
+    my $best_d2 = 'inf' + 0;
 
-    my @queue_t1 = $t;
-    my @queue_t2 = undef;
-    my @queue_d2 = undef;
+    my @inner;
+    my @queue_t1;
+    my @queue_t2;
+    while ($t) {
+        if (defined $t->[_axis]) {
+            my ($s0, $s1) = @{$t}[_s0, _s1];
+            push @inner, $s1;
+            push @queue_t1, $s0;
+            push @queue_t2, $s1;
+            $t = $s0;
+        }
+        else {
+            my $ixs = $t->[_ixs];
+            for my $i (1 .. $#$ixs) {
+                my $ix1 = $ixs->[$i];
+                my $v1 = $vs->[$ix1];
+                for my $j (0 .. $i - 1) {
+                    my $ix2 = $ixs->[$j];
+                    my $d2 = Math::Vector::Real::dist2($v1, $vs->[$ix2]);
+                    if ($d2 < $best_d2) {
+                        $best_d2 = $d2;
+                        @best_ixs = ($ix1, $ix2);
+                    }
+                }
+            }
+            $t = pop @inner;
+        }
+    }
 
-    while (@queue_t1) {
-        my $t1 = pop @queue_t1;
+    my @queue_d2 = (0) x @queue_t1;
+    while (my $t1 = pop @queue_t1) {
         my $t2 = pop @queue_t2;
         my $d2 = pop @queue_d2;
-        if ($t2) {
-            if ($d2 < $best_d2) {
-                unless (defined $t1->[_axis]) {
-                    unless (defined $t2->[_axis]) {
-                        for my $ix1 (@{$t1->[_ixs]}) {
-                            my $v1 = $vs->[$ix1];
-                            for my $ix2 (@{$t2->[_ixs]}) {
-                                my $d2 = Math::Vector::Real::dist2($v1, $vs->[$ix2]);
-                                if ($d2 < $best_d2) {
-                                    $best_d2 = $d2;
-                                    @best_ixs = ($ix1, $ix2);
-                                }
+        if ($d2 < $best_d2) {
+            unless (defined $t1->[_axis]) {
+                unless (defined $t2->[_axis]) {
+                    for my $ix1 (@{$t1->[_ixs]}) {
+                        my $v1 = $vs->[$ix1];
+                        for my $ix2 (@{$t2->[_ixs]}) {
+                            my $d2 = Math::Vector::Real::dist2($v1, $vs->[$ix2]);
+                            if ($d2 < $best_d2) {
+                                $best_d2 = $d2;
+                                @best_ixs = ($ix1, $ix2);
                             }
                         }
-                        next;
                     }
-                    ($t1, $t2) = ($t2, $t1);
+                    next;
                 }
-                for my $s (@{$t1}[_s0, _s1]) {
-                    my $d2 = Math::Vector::Real->dist2_between_boxes(@{$s}[_c0, _c1], @{$t2}[_c0, _c1]);
+                ($t1, $t2) = ($t2, $t1);
+            }
+            for my $s (@{$t1}[_s0, _s1]) {
+                my $d2 = Math::Vector::Real->dist2_between_boxes(@{$s}[_c0, _c1], @{$t2}[_c0, _c1]);
+                if ($d2) {
                     if ($d2 < $best_d2) {
                         unshift @queue_t1, $t2;
                         unshift @queue_t2, $s;
                         unshift @queue_d2, $d2;
                     }
                 }
-            }
-        }
-        else {
-            if (defined $t1->[_axis]) {
-                my ($s0, $s1) = @{$t1}[_s0, _s1];
-                push @queue_t1, $s0, $s0, $s1;
-                push @queue_t2, $s1, undef, undef;
-                push @queue_d2, 0, 0, 0;
-            }
-            else {
-                my $ixs = $t1->[_ixs];
-                for my $i (1 .. $#$ixs) {
-                    my $ix1 = $ixs->[$i];
-                    my $v1 = $vs->[$ix1];
-                    for my $j (0 .. $i - 1) {
-                        my $ix2 = $ixs->[$j];
-                        my $d2 = Math::Vector::Real::dist2($v1, $vs->[$ix2]);
-                        if ($d2 < $best_d2) {
-                            $best_d2 = $d2;
-                            @best_ixs = ($ix1, $ix2);
-                        }
-                    }
+                else {
+                    push @queue_t1, $t2;
+                    push @queue_t2, $s;
+                    push @queue_d2, 0;
                 }
             }
         }
