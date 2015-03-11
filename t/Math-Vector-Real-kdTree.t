@@ -177,12 +177,9 @@ for my $g (keys %gen) {
 
             my ($b1, $b2, $min_d2) = $t->find_two_nearest_vectors;
             my ($b1bf, $b2bf, $min_d2_bf) = find_two_nearest_vectors_bruteforce(@o);
-            if ($min_d2 != $min_d2_bf) {
-
-            }
             is($min_d2, $min_d2_bf, "nearest_two_vectors") or do {
                 diag "values differ: $min_d2 $min_d2_bf best: $b1, $b2, best_bf: $b1bf, $b2bf\n";
-                diag "tree:\n" . $t->dump_to_string(pole_id => 1, remark => [$b1, $b2, $b1bf, $b2bf]);
+                diag $t->dump_to_string(pole_id => 1, remark => [$b1, $b2, $b1bf, $b2bf]);
             };
 
             my %seed_errs = (k_means_seed => [1], k_means_seed_pp => [1, 0.9, 0.5]);
