@@ -1283,7 +1283,8 @@ of the points to be excluded.
 
 =item @ix = $t->find_nearest_vector_all_internal
 
-Returns the index of the nearest vector from the tree.
+Returns for every vector in the tree, the index of the nearest vector
+also from the tree that is not itself.
 
 It is equivalent to the following code (though, it uses a better
 algorithm):
