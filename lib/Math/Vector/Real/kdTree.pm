@@ -1,6 +1,6 @@
 package Math::Vector::Real::kdTree;
 
-our $VERSION = '0.14';
+our $VERSION = '0.15';
 
 use 5.010;
 use strict;
@@ -55,6 +55,7 @@ sub _build {
         my $s1 = _build($v, $p1);
         my ($c0, $c1) = Math::Vector::Real->box(@{$s0}[_c0, _c1], @{$s1}[_c0, _c1]);
         my $cut = 0.5 * ($s0->[_c1][$axis] + $s1->[_c0][$axis]);
+        # warn "b: $b, t: $t, axis: $axis, p0: $p0, p1: $p1, s0: $s0, s1: $s1, c0: $c0, c1: $c1, cut: $cut\n";
         # [n sum s0 s1 axis cut]
         [scalar(@$ixs), $c0, $c1, $s0->[_sum] + $s1->[_sum], $s0, $s1, $axis, $cut];
     }
@@ -411,6 +412,67 @@ sub _find_nearest_vector_in_box {
     return ($best_ix, $best_d2);
 }
 
+sub find_nearest_vector_in_box_chebyshev {
+    my ($self, $v, $a, $b, $d, @but) = @_;
+
+    my $t = $self->{tree} or return;
+    my $vs = $self->{vs};
+    my ($a1, $b1) = Math::Vector::Real->box($a, $b);
+    my $d2 = (defined $d ? $d * $d : $v->max_dist2_to_box($a1, $b1));
+    my $but;
+    if (@but) {
+        if (@but == 1 and ref $but[0] eq 'HASH') {
+            $but = $but[0];
+        }
+        else {
+            my %but = map { $_ => 1 } @but;
+            $but = \%but;
+        }
+    }
+    my ($rix, $rd2) = _find_nearest_vector_in_box($vs, $t, $v, $a1, $b1, $d2, $but);
+    $rix // return;
+    wantarray ? ($rix, sqrt($rd2)) : $rix;
+}
+
+sub _find_nearest_vector_in_box_chebyshev {
+    my ($vs, $t, $v, $a, $b, $best_d, $but) = @_;
+    my $best_ix;
+    my @queue = $t;
+    my @queue_d = 0;
+
+    while (my $t = pop @queue) {
+        last if $best_d < pop @queue_d;
+        if (defined (my $axis = $t->[_axis])) {
+            my @sides;
+            push @sides, $t->[_s0] if $a->[$axis] <= $t->[_cut];
+            push @sides, $t->[_s1] if $b->[$axis] >= $t->[_cut];
+            for my $s (@sides) {
+                my $d = $v->chebyshev_dist_to_box(@$s[_c0, _c1]);
+                if ($d <= $best_d) {
+                    my $j;
+                    for ($j = $#queue_d; $j >= 0; $j--) {
+                        last if $queue_d[$j] >= $d;
+                    }
+                    splice @queue, ++$j, 0, $s;
+                    splice @queue_d, $j, 0, $d;
+                }
+            }
+        }
+        else {
+            for (@{$t->[_ixs]}) {
+                next if $but and $but->{$_};
+                my $v1 = $vs->[$_];
+                my $d = $v1->chebyshev_dist($v);
+                if ($d <= $best_d and $v1->chebyshev_dist_to_box($a, $b) == 0) {
+                    $best_d = $d;
+                    $best_ix = $_;
+                }
+            }
+        }
+    }
+    return ($best_ix, $best_d);
+}
+
 sub find_nearest_vector_all_internal {
     my ($self, $d) = @_;
     my $vs = $self->{vs};
@@ -577,8 +639,8 @@ sub find_in_ball {
 
 sub _find_in_ball {
     my ($vs, $t, $z, $d2, $but) = @_;
-    my @queue;
-    my (@r, $r);
+    my (@queue, @r);
+    my $r = 0;
 
     while (1) {
         if (defined (my $axis = $t->[_axis])) {
@@ -600,6 +662,48 @@ sub _find_in_ball {
 
             $t = pop @queue or last;
         }
+    }
+
+    if (wantarray) {
+        if ($but) {
+            return grep !$but->{$_}, @r;
+        }
+        return @r;
+    }
+    return $r;
+}
+
+sub find_in_box {
+    my ($self, $a, $b, $but) = @_;
+    my ($a1, $b1) = Math::Vector::Real->box($a, $b);
+    if (defined $but and ref $but ne 'HASH') {
+        $but = { $but => 1 };
+    }
+    _find_in_box($self->{vs}, $self->{tree}, $a1, $b1, $but);
+}
+
+sub _find_in_box {
+    my ($vs, $t, $a, $b, $but) = @_;
+    my (@r, $r);
+    my @queue;
+    while (1) {
+        if (defined (my $axis = $t->[_axis])) {
+            my $cut = $t->[_cut];
+            push @queue, $t->[_s0] if $cut >= $a->[$axis];
+            push @queue, $t->[_s1] if $cut <= $b->[$axis];
+        }
+        else {
+            my $ixs = $t->[_ixs];
+            if (wantarray) {
+                push @r, grep { $vs->[$_]->dist2_to_box($a, $b) <= 0 } @$ixs;
+            }
+            else {
+                $r += ( $but
+                        ? grep { !$but->{$_} and $vs->[$_]->dist2_to_box($a, $b) <= 0 } @$ixs
+                        : grep { $vs->[$_]->dist2_to_box($a, $b) <= 0 } @$ixs );
+            }
+        }
+        $t = pop @queue or last;
     }
 
     if (wantarray) {
@@ -1198,6 +1302,13 @@ also inside the box defined by C<$a> and C<$b>.
 The other arguments have the same meaning as for the method
 C<find_nearest_vector>.
 
+=item $ix = $t->find_nearest_vector_in_box_chebyshev($p, $a, $b, $max_d, @but_ix)
+
+=item $ix = $t->find_nearest_vector_in_box_chebyshev($p, $a, $b, $max_d, \%but_ix)
+
+This method is similar to C<find_nearest_vector_in_box> but using the
+Chebyshev metric.
+
 =item $ix = $t->find_farthest_vector($p, $min_d, @but_ix)
 
 Find the point from the tree farthest from the given C<$p>.
@@ -1251,6 +1362,19 @@ belongs to.
 
 Finds the points inside the tree contained in the hypersphere with
 center C<$z> and radius C<$d>.
+
+In scalar context returns the number of points found. In list context
+returns the indexes of the points.
+
+If the extra argument C<$but> is provided. The point with that index
+is ignored.
+
+=item @ix = $t->find_in_box($a, $b, $but)
+
+=item $n = $t->find_in_box($a, $b, $but)
+
+Finds the points inside the tree contained in the axis-aligned box
+defined by two opposite vertices C<$a> and C<$b>.
 
 In scalar context returns the number of points found. In list context
 returns the indexes of the points.

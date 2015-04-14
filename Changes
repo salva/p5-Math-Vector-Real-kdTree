@@ -1,5 +1,9 @@
 Revision history for Perl extension Math::Vector::Real::kdTree.
 
+0.15  Apr 14, 2015
+        - add find_nearest_vector_in_box_chebyshev and find_in_box
+          methods
+
 0.14  Apr 14, 2015
         - add find_nearest_vector_in_box
 
