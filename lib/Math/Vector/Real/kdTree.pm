@@ -1,6 +1,6 @@
 package Math::Vector::Real::kdTree;
 
-our $VERSION = '0.13';
+our $VERSION = '0.14';
 
 use 5.010;
 use strict;
@@ -348,6 +348,67 @@ sub _find_nearest_vector {
             return ($best_ix, $best_d2);
         }
     }
+}
+
+sub find_nearest_vector_in_box {
+    my ($self, $v, $a, $b, $d, @but) = @_;
+
+    my $t = $self->{tree} or return;
+    my $vs = $self->{vs};
+    my ($a1, $b1) = Math::Vector::Real->box($a, $b);
+    my $d2 = (defined $d ? $d * $d : $v->max_dist2_to_box($a1, $b1));
+    my $but;
+    if (@but) {
+        if (@but == 1 and ref $but[0] eq 'HASH') {
+            $but = $but[0];
+        }
+        else {
+            my %but = map { $_ => 1 } @but;
+            $but = \%but;
+        }
+    }
+    my ($rix, $rd2) = _find_nearest_vector_in_box($vs, $t, $v, $a1, $b1, $d2, $but);
+    $rix // return;
+    wantarray ? ($rix, sqrt($rd2)) : $rix;
+}
+
+sub _find_nearest_vector_in_box {
+    my ($vs, $t, $v, $a, $b, $best_d2, $but) = @_;
+    my $best_ix;
+    my @queue = $t;
+    my @queue_d2 = 0;
+
+    while (my $t = pop @queue) {
+        last if $best_d2 < pop @queue_d2;
+        if (defined (my $axis = $t->[_axis])) {
+            my @sides;
+            push @sides, $t->[_s0] if $a->[$axis] <= $t->[_cut];
+            push @sides, $t->[_s1] if $b->[$axis] >= $t->[_cut];
+            for my $s (@sides) {
+                my $d2 = $v->dist2_to_box(@$s[_c0, _c1]);
+                if ($d2 <= $best_d2) {
+                    my $j;
+                    for ($j = $#queue_d2; $j >= 0; $j--) {
+                        last if $queue_d2[$j] >= $d2;
+                    }
+                    splice @queue, ++$j, 0, $s;
+                    splice @queue_d2, $j, 0, $d2;
+                }
+            }
+        }
+        else {
+            for (@{$t->[_ixs]}) {
+                next if $but and $but->{$_};
+                my $v1 = $vs->[$_];
+                my $d2 = $v1->dist2($v);
+                if ($d2 <= $best_d2 and $v1->dist2_to_box($a, $b) == 0) {
+                    $best_d2 = $d2;
+                    $best_ix = $_;
+                }
+            }
+        }
+    }
+    return ($best_ix, $best_d2);
 }
 
 sub find_nearest_vector_all_internal {
@@ -1126,6 +1187,16 @@ algorithm):
   @ix = map {
             scalar $t->nearest_vector($t->at($_), undef, $_)
         } 0..($t->size - 1);
+
+=item $ix = $t->find_nearest_vector_in_box($p, $a, $b, $max_d, @but_ix)
+
+=item $ix = $t->find_nearest_vector_in_box($p, $a, $b, $max_d, \%but_ix)
+
+Returns the nearest vector for the given point from those that are
+also inside the box defined by C<$a> and C<$b>.
+
+The other arguments have the same meaning as for the method
+C<find_nearest_vector>.
 
 =item $ix = $t->find_farthest_vector($p, $min_d, @but_ix)
 

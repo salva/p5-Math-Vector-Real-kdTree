@@ -1,5 +1,8 @@
 Revision history for Perl extension Math::Vector::Real::kdTree.
 
+0.14  Apr 14, 2015
+        - add find_nearest_vector_in_box
+
 0.13  Mar 11, 2015
         - improve find_two_nearest_vectors algorithm
         - add tests
